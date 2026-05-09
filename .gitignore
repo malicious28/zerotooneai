@@ -29,3 +29,6 @@ Thumbs.db
 
 # TypeScript
 *.tsbuildinfo
+
+# Large generated files
+backend/src/data/embeddings_cache.json
