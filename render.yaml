@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: audience-builder-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: JWT_SECRET
+        generateValue: true
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: DATABASE_PATH
+        value: ./data/audience_builder.db
+      - key: FRONTEND_URL
+        sync: false

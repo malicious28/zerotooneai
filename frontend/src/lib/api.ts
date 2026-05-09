@@ -1,4 +1,4 @@
-const BASE = 'http://localhost:3001/api'
+const BASE = `${import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:3001'}/api`
 
 function getToken() {
   return localStorage.getItem('token')

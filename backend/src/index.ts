@@ -14,7 +14,10 @@ import groupRoutes from './routes/groups'
 const app = express()
 const httpServer = http.createServer(app)
 
-app.use(cors())
+app.use(cors({
+  origin: process.env['FRONTEND_URL'] ?? '*',
+  credentials: true,
+}))
 app.use(express.json())
 
 // Init DB, taxonomy and socket
