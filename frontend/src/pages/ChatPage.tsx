@@ -5,6 +5,8 @@ import { api } from '../lib/api'
 import { getSocket } from '../lib/socket'
 import AudiencePanel from '../components/AudiencePanel'
 import GroupChatPage from './GroupChatPage'
+import AdminDashboard from '../components/AdminDashboard'
+import PlannerDashboard from '../components/PlannerDashboard'
 
 interface Message {
   id: string
@@ -285,10 +287,11 @@ export default function ChatPage() {
       {/* Chat area */}
       <main className="flex-1 flex flex-col min-w-0">
         {!id ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
-            <p className="text-lg font-medium">Select or create an audience</p>
-            <button onClick={newConversation} className="mt-4 bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 text-sm">Start building</button>
-          </div>
+          user?.role === 'admin' ? (
+            <AdminDashboard onGroupChatOpen={g => { setGroup(g); setSidePanel('groupchat') }} />
+          ) : (
+            <PlannerDashboard group={group} onStartBuilding={newConversation} />
+          )
         ) : loading ? (
           <div className="flex-1 flex items-center justify-center text-gray-400">Loading...</div>
         ) : (

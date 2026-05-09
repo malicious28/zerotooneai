@@ -161,7 +161,7 @@ export default function GroupChatPage({ groupId, groupName }: Props) {
           if (m.type === 'audience_export') {
             return (
               <div key={m.id} className="flex flex-col items-center gap-1">
-                <span className="text-xs text-gray-400">{isMe ? 'You' : m.user_name} shared an audience</span>
+                <span className="text-xs text-gray-400">{m.user_name} shared an audience</span>
                 <AudienceExportCard
                   metadata={m.metadata}
                   onOpen={m.metadata?.conversation_id ? () => navigate(`/chat/${m.metadata.conversation_id}`) : undefined}
@@ -171,7 +171,7 @@ export default function GroupChatPage({ groupId, groupName }: Props) {
           }
           return (
             <div key={m.id} className={`flex flex-col gap-0.5 ${isMe ? 'items-end' : 'items-start'}`}>
-              <span className="text-xs text-gray-400 px-1">{isMe ? 'You' : m.user_name}</span>
+              <span className="text-xs text-gray-400 px-1">{m.user_name}</span>
               <div className={`max-w-xs px-4 py-2 rounded-2xl text-sm ${isMe ? 'bg-indigo-600 text-white rounded-tr-sm' : 'bg-white border text-gray-800 rounded-tl-sm shadow-sm'}`}>
                 {m.content}
               </div>
