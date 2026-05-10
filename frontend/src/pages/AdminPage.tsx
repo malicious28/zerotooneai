@@ -404,7 +404,7 @@ export default function AdminPage() {
                 groupId={activeGroupChat.id}
                 groupName={activeGroupChat.name}
                 inviteCode={activeGroupChat.invite_code}
-                onConversationOpen={(convId) => window.open(`/chat`, '_self')}
+                onConversationOpen={() => window.open(`/chat`, '_self')}
               />
             </div>
           </div>
