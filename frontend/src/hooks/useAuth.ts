@@ -7,6 +7,7 @@ interface AuthContextType {
   loading: boolean
   login: (email: string, password: string) => Promise<void>
   register: (email: string, name: string, password: string, role?: string) => Promise<void>
+  registerViaInvite: (code: string, email: string, name: string, password: string) => Promise<any>
   logout: () => void
 }
 
@@ -40,11 +41,18 @@ export function useAuthState(): AuthContextType {
     setUser(res.user)
   }
 
+  const registerViaInvite = async (code: string, email: string, name: string, password: string) => {
+    const res = await api.auth.registerViaInvite(code, email, name, password)
+    localStorage.setItem('token', res.token)
+    setUser(res.user)
+    return res
+  }
+
   const logout = () => {
     localStorage.removeItem('token')
     resetSocket()
     setUser(null)
   }
 
-  return { user, loading, login, register, logout }
+  return { user, loading, login, register, registerViaInvite, logout }
 }

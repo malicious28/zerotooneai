@@ -124,9 +124,21 @@ export default function GroupChatPage({ groupId, groupName, inviteCode, onConver
     }, 2000)
   }
 
-  const copyInviteLink = () => {
+  const copyInviteLink = async () => {
     if (!inviteCode) return
-    navigator.clipboard.writeText(`${window.location.origin}/join/${inviteCode}`)
+    const link = `${window.location.origin}/join/${inviteCode}`
+    try {
+      await navigator.clipboard.writeText(link)
+    } catch {
+      const el = document.createElement('textarea')
+      el.value = link
+      el.style.cssText = 'position:fixed;opacity:0'
+      document.body.appendChild(el)
+      el.focus()
+      el.select()
+      try { document.execCommand('copy') } catch {}
+      document.body.removeChild(el)
+    }
     setCopiedInvite(true)
     setTimeout(() => setCopiedInvite(false), 2000)
   }
@@ -189,7 +201,7 @@ export default function GroupChatPage({ groupId, groupName, inviteCode, onConver
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 bg-gray-50/40">
         {messages.length === 0 && (
-          <p className="text-center text-gray-400 text-sm mt-12">No messages yet. Start the conversation!</p>
+          <p className="text-center text-gray-400 text-sm mt-12">No messages yet. Share an audience or kick off the discussion.</p>
         )}
         {messages.map(m => {
           const isMe = m.user_id === user?.id
@@ -247,7 +259,7 @@ export default function GroupChatPage({ groupId, groupName, inviteCode, onConver
           <input
             value={input}
             onChange={e => handleTyping(e.target.value)}
-            placeholder="Message the group..."
+            placeholder="Share insights, discuss a brief, or react to an audience..."
             className="flex-1 bg-transparent text-sm text-gray-800 placeholder-gray-400 focus:outline-none"
             disabled={sending}
           />

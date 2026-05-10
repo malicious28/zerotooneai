@@ -89,7 +89,7 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <p className="relative text-xs text-gray-300">© 2025 AudienceBuilder</p>
+        <p className="relative text-xs text-gray-300">© 2026 AudienceBuilder</p>
       </div>
 
       {/* Right — form panel */}
@@ -223,7 +223,7 @@ export default function LoginPage() {
                     onChange={e => setRole(e.target.value as 'planner' | 'admin')}
                     className="w-full bg-transparent px-3.5 py-2.5 text-sm text-gray-900 focus:outline-none rounded-xl appearance-none"
                   >
-                    <option value="planner">Planner</option>
+                    <option value="planner">Media Planner</option>
                     <option value="admin">Admin</option>
                   </select>
                 </div>

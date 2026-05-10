@@ -106,22 +106,40 @@ export default function ChatPage() {
   const [inviteUsers, setInviteUsers]            = useState<any[]>([])
   const [inviteUsersLoading, setInviteUsersLoading] = useState(false)
   const [inviteNotification, setInviteNotification] = useState<any>(null)
+  const [groups, setGroups]                         = useState<any[]>([])
+  const [groupUnread, setGroupUnread]               = useState<Set<string>>(new Set())
+  const [showJoinGroup, setShowJoinGroup]           = useState(false)
+  const [joinCodeInput, setJoinCodeInput]           = useState('')
+  const [joinGroupError, setJoinGroupError]         = useState('')
+  const [joinGroupLoading, setJoinGroupLoading]     = useState(false)
   const bottomRef       = useRef<HTMLDivElement>(null)
   const prevConvId      = useRef<string | undefined>(undefined)
   const pendingFirstMessage = useRef<string | undefined>(undefined)
   const doSendRef = useRef<(convId: string, text: string) => Promise<void>>(async () => {})
+  const sidePanelRef    = useRef(sidePanel)
+  const activeGroupIdRef = useRef<string | undefined>(undefined)
 
   const firstName = user?.name?.split(' ')[0] ?? 'there'
 
-  // Bootstrap group
+  // Bootstrap: load all groups the user belongs to (works for all roles)
   useEffect(() => {
     api.auth.me().then(r => {
-      if (r.group) {
-        setGroup(r.group)
-        api.groups.getMembers(r.group.id).then(mr => setGroupMembers(mr.members)).catch(() => {})
+      if (r.groups?.length > 0) {
+        setGroups(r.groups)
+        setGroup(r.groups[0])
       }
     }).catch(() => {})
   }, [])
+
+  // Refresh groupMembers whenever active group changes
+  useEffect(() => {
+    if (!group) return
+    api.groups.getMembers(group.id).then(mr => setGroupMembers(mr.members)).catch(() => {})
+  }, [group?.id])
+
+  // Keep refs in sync so socket callbacks don't close over stale values
+  useEffect(() => { sidePanelRef.current = sidePanel }, [sidePanel])
+  useEffect(() => { activeGroupIdRef.current = group?.id }, [group])
 
   // Invite socket
   useEffect(() => {
@@ -129,6 +147,24 @@ export default function ChatPage() {
     socket.on('conv:invite', (p: any) => setInviteNotification(p))
     return () => { socket.off('conv:invite') }
   }, [])
+
+  // Group unread badge — join ALL group rooms and mark unread per group
+  useEffect(() => {
+    const allIds = groups.length > 0 ? groups.map((g: any) => g.id) : group ? [group.id] : []
+    if (allIds.length === 0) return
+    const socket = getSocket()
+    allIds.forEach(id => socket.emit('join_group', id))
+    const markUnread = (msg: any) => {
+      const isViewing = sidePanelRef.current === 'groupchat' && activeGroupIdRef.current === msg.group_id
+      if (!isViewing) setGroupUnread(prev => new Set([...prev, msg.group_id]))
+    }
+    socket.on('group:message', markUnread)
+    socket.on('group:audience_export', markUnread)
+    return () => {
+      socket.off('group:message', markUnread)
+      socket.off('group:audience_export', markUnread)
+    }
+  }, [groups, group])
 
   // Conversation list
   useEffect(() => {
@@ -229,6 +265,9 @@ export default function ChatPage() {
       })
       setSignals(r.signals)
       setEstimate(r.audience_estimate)
+      if (r.conversation_title) {
+        setConversations(prev => prev.map(c => c.id === convId ? { ...c, title: r.conversation_title } : c))
+      }
     } catch (err: any) {
       setMessages(prev => prev.filter(m => m.id !== tempId))
       setSending(false)
@@ -320,12 +359,31 @@ export default function ChatPage() {
   }
 
   const deleteConversation = async (convId: string) => {
-    if (!window.confirm('Delete this conversation? This cannot be undone.')) return
+    if (!window.confirm('Delete this audience? All messages and targeting signals will be permanently removed.')) return
     try {
       await api.conversations.delete(convId)
       setConversations(prev => prev.filter(c => c.id !== convId))
       if (activeConvId === convId) goHome()
     } catch (err: any) { alert(err.message) }
+  }
+
+  const handleJoinGroup = async () => {
+    const raw = joinCodeInput.trim()
+    if (!raw) return
+    const match = raw.match(/\/join\/([A-Za-z0-9_-]+)/)
+    const code = match ? match[1] : raw
+    setJoinGroupLoading(true)
+    setJoinGroupError('')
+    try {
+      const r = await api.groups.joinByCode(code)
+      localStorage.setItem('token', r.token)
+      setGroups(prev => prev.find(g => g.id === r.group.id) ? prev : [...prev, r.group])
+      setGroup(r.group)
+      setShowJoinGroup(false)
+      setJoinCodeInput('')
+      setSidePanel('groupchat')
+    } catch (err: any) { setJoinGroupError(err.message) }
+    setJoinGroupLoading(false)
   }
 
   const isInputLocked = sending || aiThinking || isConfirmed
@@ -347,9 +405,9 @@ export default function ChatPage() {
           className="fixed top-4 right-4 z-50 rounded-2xl shadow-xl p-4 max-w-sm"
           style={{ background: 'rgba(255,255,255,0.92)', backdropFilter: 'blur(20px)', border: '1px solid rgba(253,224,71,0.35)' }}
         >
-          <p className="text-sm font-semibold text-gray-800">{inviteNotification.invitedBy} invited you</p>
+          <p className="text-sm font-semibold text-gray-800">{inviteNotification.invitedBy} invited you to collaborate</p>
           <p className="text-sm text-gray-400 mt-0.5">
-            <span className="font-medium text-gray-600">{inviteNotification.conversationTitle}</span>
+            Audience: <span className="font-medium text-gray-600">{inviteNotification.conversationTitle}</span>
           </p>
           <div className="flex gap-2 mt-3">
             <button
@@ -368,7 +426,7 @@ export default function ChatPage() {
           <div className="bg-white rounded-2xl shadow-2xl border border-yellow-200 p-6 w-full max-w-sm">
             <div className="mb-4">
               <h3 className="font-semibold text-gray-900">Invite to this conversation</h3>
-              <p className="text-xs text-gray-400 mt-1">They'll join this AI chat and collaborate with you on building the audience.</p>
+              <p className="text-xs text-gray-400 mt-1">They'll join this audience-building session and can contribute to refining the targeting signals.</p>
             </div>
             <div className="space-y-0.5 max-h-64 overflow-y-auto">
               {inviteUsersLoading ? (
@@ -429,16 +487,59 @@ export default function ChatPage() {
             <IcHome /> Home
           </button>
           <button onClick={() => newConversation()} className={navCls(false)}>
-            <IcPlus /> New Chat
+            <IcPlus /> New Audience
           </button>
-          {group && (
+          {groups.map((g: any) => (
             <button
-              onClick={() => { setSidePanel('groupchat'); setActiveConvId(undefined) }}
-              className={navCls(sidePanel === 'groupchat' && !activeConvId)}
+              key={g.id}
+              onClick={() => { setGroup(g); setSidePanel('groupchat'); setActiveConvId(undefined); setGroupUnread(prev => { const s = new Set(prev); s.delete(g.id); return s }) }}
+              className={navCls(sidePanel === 'groupchat' && !activeConvId && group?.id === g.id)}
             >
-              <IcGroupChat />
-              <span className="truncate">{group.name}</span>
+              <div className="relative flex-shrink-0">
+                <IcGroupChat />
+                {groupUnread.has(g.id) && (
+                  <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-amber-400 ring-1 ring-white" />
+                )}
+              </div>
+              <span className="truncate">{g.name}</span>
             </button>
+          ))}
+          {!showJoinGroup ? (
+            <button
+              onClick={() => setShowJoinGroup(true)}
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm text-gray-400 hover:bg-gray-50 hover:text-amber-600 transition-colors"
+            >
+              <IcPlus />
+              <span>Join a group</span>
+            </button>
+          ) : (
+            <div className="px-1 py-1 space-y-1.5">
+              <input
+                value={joinCodeInput}
+                onChange={e => { setJoinCodeInput(e.target.value); setJoinGroupError('') }}
+                onKeyDown={e => { if (e.key === 'Enter') handleJoinGroup() }}
+                placeholder="Paste invite link or code"
+                autoFocus
+                className="w-full text-xs px-2.5 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-amber-300 text-gray-700 placeholder-gray-400 bg-white"
+              />
+              {joinGroupError && <p className="text-[10px] text-red-500 px-0.5">{joinGroupError}</p>}
+              <div className="flex gap-1.5">
+                <button
+                  onClick={handleJoinGroup}
+                  disabled={joinGroupLoading || !joinCodeInput.trim()}
+                  className="flex-1 text-xs py-1.5 rounded-lg text-white font-medium disabled:opacity-50 transition-all"
+                  style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}
+                >
+                  {joinGroupLoading ? '…' : 'Join'}
+                </button>
+                <button
+                  onClick={() => { setShowJoinGroup(false); setJoinCodeInput(''); setJoinGroupError('') }}
+                  className="flex-1 text-xs py-1.5 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
           )}
           {user?.role === 'admin' && (
             <Link to="/admin" className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors">
@@ -531,7 +632,7 @@ export default function ChatPage() {
               className="flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-full border border-gray-200 bg-white hover:bg-yellow-100 hover:border-yellow-300 text-gray-700 transition-all"
             >
               <IcPlus />
-              New Chat
+              New Audience
             </button>
             <div
               className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
@@ -568,7 +669,7 @@ export default function ChatPage() {
                   </div>
                   <div>
                     <p className="text-base font-semibold text-gray-700">No group yet</p>
-                    <p className="text-sm text-gray-400 mt-1">Create a group in the Admin panel to start team conversations.</p>
+                    <p className="text-sm text-gray-400 mt-1">Create a group in the Admin panel to share audiences and collaborate with your planning team.</p>
                   </div>
                   {user?.role === 'admin' && (
                     <Link to="/admin" className="text-sm font-medium text-amber-600 hover:text-amber-700 underline underline-offset-2">Go to Admin → Create Group</Link>
@@ -596,7 +697,7 @@ export default function ChatPage() {
                 <span className="text-xs font-semibold text-gray-700 flex-1 truncate">{activeConv?.title ?? 'Audience AI'}</span>
                 <button
                   onClick={() => newConversation()}
-                  title="New chat"
+                  title="New audience"
                   className="text-gray-400 hover:text-amber-600 transition-colors"
                 ><IcPlus /></button>
               </div>
@@ -606,12 +707,12 @@ export default function ChatPage() {
                 {!activeConvId ? (
                   <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-2">
                     <p className="text-xs font-medium text-gray-600">Audience AI</p>
-                    <p className="text-xs text-gray-400 leading-relaxed">Start a chat to plan your audience with AI while collaborating in group.</p>
+                    <p className="text-xs text-gray-400 leading-relaxed">Describe your target audience and get AI-powered signals — then share the result directly to this group.</p>
                     <button
                       onClick={() => newConversation()}
                       className="text-xs font-medium px-3 py-1.5 rounded-lg text-white transition-all"
                       style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}
-                    >+ New Chat</button>
+                    >+ New Audience</button>
                   </div>
                 ) : loading ? (
                   <div className="flex items-center justify-center h-full gap-2 text-gray-400 text-xs">
@@ -667,7 +768,7 @@ export default function ChatPage() {
                         value={input}
                         onChange={e => setInput(e.target.value)}
                         onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleFormSubmit(e as any) } }}
-                        placeholder={aiThinking ? 'AI thinking...' : activeConvId ? 'Describe audience...' : 'Start a new AI chat…'}
+                        placeholder={aiThinking ? 'AI is working...' : activeConvId ? 'Refine your audience...' : 'Start a new audience...'}
                         className="flex-1 bg-transparent text-xs text-gray-700 placeholder-gray-400 focus:outline-none min-w-0"
                         disabled={!!activeConvId && isInputLocked}
                       />
@@ -720,9 +821,9 @@ export default function ChatPage() {
                     {getGreeting()}, {firstName}
                   </h1>
                   <h2 className="text-[1.85rem] font-semibold text-center leading-tight mt-0.5 tracking-tight">
-                    How Can I{' '}
+                    Who are you{' '}
                     <span style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 50%, #b45309 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
-                      Assist You Today?
+                      targeting today?
                     </span>
                   </h2>
                   {group && groupMembers.length > 0 && (
@@ -772,7 +873,7 @@ export default function ChatPage() {
                     </div>
                     <div className="flex items-center gap-2 ml-4 flex-shrink-0">
                       {isConfirmed && (
-                        <span className="text-xs bg-green-50 text-green-600 border border-green-100 px-3 py-1 rounded-full font-medium">Confirmed</span>
+                        <span className="text-xs bg-green-50 text-green-600 border border-green-100 px-3 py-1 rounded-full font-medium">Locked In</span>
                       )}
                     </div>
                   </div>
@@ -781,7 +882,7 @@ export default function ChatPage() {
                   <div className="space-y-4">
                     {messages.length === 0 && (
                       <div className="text-center py-8">
-                        <p className="text-sm text-gray-400">Start describing your audience…</p>
+                        <p className="text-sm text-gray-400">Describe your target audience to get started…</p>
                       </div>
                     )}
                     {messages.map(m => {
@@ -854,7 +955,7 @@ export default function ChatPage() {
                             ? 'AI is thinking...'
                             : activeConvId
                             ? 'Describe your audience...'
-                            : '✦  Initiate a query or send a command to the AI...'
+                            : '✦  Describe your target audience in plain English...'
                         }
                         rows={activeConvId ? 2 : 3}
                         className="w-full px-5 pt-5 pb-2 text-sm text-gray-700 placeholder-gray-400 resize-none focus:outline-none bg-transparent leading-relaxed"
@@ -921,7 +1022,7 @@ export default function ChatPage() {
                         exportSuccess ? 'bg-green-50 text-green-700 border-green-100' : 'bg-white border-gray-200 hover:border-yellow-300 hover:bg-yellow-100 text-gray-700'
                       }`}
                     >
-                      {exportSuccess ? 'Shared to Group!' : exporting ? 'Sharing...' : 'Share to Group Chat'}
+                      {exportSuccess ? 'Audience Shared!' : exporting ? 'Sharing...' : 'Share Audience to Group'}
                     </button>
                   </div>
                 )}
@@ -934,8 +1035,8 @@ export default function ChatPage() {
                   </svg>
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-gray-500">No audience selected</p>
-                  <p className="text-xs text-gray-400 mt-1">Start a conversation to see audience signals here</p>
+                  <p className="text-sm font-medium text-gray-500">No audience in progress</p>
+                  <p className="text-xs text-gray-400 mt-1">Start a new chat and describe your target audience to see signals here</p>
                 </div>
               </div>
             )}

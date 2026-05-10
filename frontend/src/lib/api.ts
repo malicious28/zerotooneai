@@ -29,7 +29,7 @@ export const api = {
       request<{ token: string; user: any }>('/auth/register', { method: 'POST', body: JSON.stringify({ email, name, password, role }) }),
     registerViaInvite: (code: string, email: string, name: string, password: string) =>
       request<{ token: string; user: any; group: any }>(`/auth/register/invite/${code}`, { method: 'POST', body: JSON.stringify({ email, name, password }) }),
-    me: () => request<{ user: any; group: any | null }>('/auth/me'),
+    me: () => request<{ user: any; groups: any[] }>('/auth/me'),
     listUsers: () => request<{ users: any[] }>('/auth/users'),
   },
   groups: {
@@ -40,6 +40,7 @@ export const api = {
     getMembers: (id: string) => request<{ members: any[] }>(`/groups/${id}/members`),
     getMessages: (id: string, since?: string) => request<{ messages: any[] }>(`/groups/${id}/messages${since ? `?since=${since}` : ''}`),
     sendMessage: (id: string, content: string) => request<{ message: any }>(`/groups/${id}/messages`, { method: 'POST', body: JSON.stringify({ content }) }),
+    joinByCode: (code: string) => request<{ ok: boolean; group: any; token: string; user: any }>(`/groups/join/${code}`, { method: 'POST' }),
     exportAudience: (id: string, data: any) => request<{ message: any }>(`/groups/${id}/export-audience`, { method: 'POST', body: JSON.stringify(data) }),
     delete: (id: string) => request<{ ok: boolean }>(`/groups/${id}`, { method: 'DELETE' }),
   },
@@ -56,7 +57,7 @@ export const api = {
   },
   chat: {
     send: (conversationId: string, content: string) =>
-      request<{ message: any; signals: any[]; audience_estimate: any }>(`/chat/${conversationId}/message`, { method: 'POST', body: JSON.stringify({ content }) }),
+      request<{ message: any; signals: any[]; audience_estimate: any; conversation_title?: string }>(`/chat/${conversationId}/message`, { method: 'POST', body: JSON.stringify({ content }) }),
     removeSignal: (conversationId: string, signalId: string) =>
       request<{ signals: any[]; audience_estimate: any }>(`/chat/${conversationId}/signals/${signalId}`, { method: 'DELETE' }),
   },

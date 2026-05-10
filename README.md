@@ -11,7 +11,8 @@ A chat-based tool for media planners to build audience segments using plain Engl
 3. The AI recommends a set of targeting signals (location, demographic, interest, behavior, transaction)
 4. The planner refines through conversation — add signals, remove them, change the geography
 5. When satisfied, the planner clicks **Confirm Audience** to lock it in
-6. Admins can view all confirmed audiences in a dashboard
+6. Confirmed audiences can be exported to a group chat for team review
+7. Admins can view all confirmed audiences in a dashboard
 
 ---
 
@@ -135,20 +136,53 @@ zerotooneai/
 
 | Role | Can do |
 |---|---|
-| **Planner** | Create conversations, chat with AI, confirm audiences, join groups via invite |
-| **Admin** | Everything planners can do + view all conversations and confirmed audiences + create and manage groups |
+| **Planner** | Create conversations, chat with AI, confirm audiences, export audiences to group chat, join any number of groups via invite link or URL |
+| **Admin** | Everything planners can do + view all confirmed audiences across all planners + create and manage groups + regenerate invite links |
+
+---
+
+## Auth Flows
+
+**Standard registration** — any user can register with email, name, and password and choose a role (admin or planner).
+
+**Invite-link registration** — opening a group invite URL (`/join/:code`) presents a registration form. Submitting it creates the account, adds the user to the group, and logs them in immediately — no separate login step required.
+
+**Existing user join** — a logged-in user can paste a group invite URL or code into the "Join a group" input in the sidebar to join additional groups without leaving the app.
+
+---
+
+## Group Collaboration
+
+### For admins
+- Create named groups from the sidebar
+- Each group gets a unique invite link; the link can be regenerated at any time
+- All created groups are listed in the sidebar — there is no limit on how many groups an admin can own
+- View all group members and chat in a real-time group channel
+- Export confirmed audience cards directly into the group chat
+
+### For planners
+- Join any number of groups using an invite URL or raw invite code via the "Join a group" button in the sidebar
+- Each group appears as a separate entry in the sidebar
+- Chat in real-time with other members; audience exports from any member appear inline in the chat
+
+### Unread notifications
+A small indicator appears on a group's icon in the sidebar whenever new messages arrive while the user is not viewing that group's chat. It clears as soon as they open the group.
+
+### Audience export
+After confirming an audience in the AI chat, the planner can click **Share to Group** to post a summary card into the group chat. All group members see the card in real-time, including the signal breakdown and reach estimate.
+
+---
+
+## Collaborative AI Conversations
+
+A planner can invite other platform members into their AI conversation. Invited members join a shared chat window and can send messages to the same AI context. The audience signals and reach panel update for all participants simultaneously over WebSocket.
 
 ---
 
 ## Extra Features
 
-Beyond the core task requirements, the following were added:
-
 **Real-time updates**
 All conversation activity — new messages, signal changes, participant joins — is pushed over WebSocket (Socket.IO) so multiple users see changes without refreshing.
-
-**Group collaboration**
-Admins can create groups and share an invite link. Planners join via that link and get access to a shared group chat. Confirmed audiences can be exported into the group chat so the whole team can see the result.
 
 **Rejection memory**
 When a planner removes a signal, the AI remembers it for that conversation and never re-suggests it. This prevents the AI from looping back to signals the user already rejected.
@@ -156,11 +190,17 @@ When a planner removes a signal, the AI remembers it for that conversation and n
 **Semantic signal search**
 At startup, the backend generates embeddings (via `text-embedding-3-small`) for all taxonomy signals and caches them. When the AI searches for relevant signals, it uses semantic similarity rather than keyword matching. Keyword search is used as a fallback while the embeddings are being built.
 
+**Conversation titles**
+The first message in a new conversation automatically generates a short title which appears immediately in the sidebar — no page reload required.
+
 **Planner dashboard**
 Planners see their conversation history grouped by time (Today, Yesterday, Last 7 Days, Older) with search and quick status indicators.
 
 **Admin analytics**
 Admins see confirmed audience counts by user, message counts per conversation, and group membership — all in one view.
+
+**Many-to-many group membership**
+Users are not limited to a single group. Any user can belong to as many groups as they want. Membership is stored in a `user_groups` junction table so every group list and member count is always accurate.
 
 ---
 
@@ -195,26 +235,34 @@ No real count data is provided, so reach is estimated using a 500M addressable u
 
 ```
 POST    /api/auth/register
+POST    /api/auth/register/invite/:code       (register + join group in one step)
 POST    /api/auth/login
-GET     /api/auth/me
+GET     /api/auth/me                          (returns user + all group memberships)
+GET     /api/auth/users                       (platform-connected users, for invites)
 
 GET     /api/conversations
 POST    /api/conversations
 GET     /api/conversations/:id
 PATCH   /api/conversations/:id
 POST    /api/conversations/:id/confirm
-GET     /api/conversations/admin/confirmed     (admin only)
+DELETE  /api/conversations/:id
+GET     /api/conversations/admin/confirmed    (admin only)
 
 POST    /api/chat/:conversationId/message
 DELETE  /api/chat/:conversationId/signals/:signalId
+GET     /api/chat/:conversationId/participants
+POST    /api/chat/:conversationId/invite
 
-GET     /api/groups
-POST    /api/groups                            (admin only)
-GET     /api/groups/:id
-POST    /api/groups/:id/regenerate-invite      (admin only)
+GET     /api/groups                           (groups the current user belongs to)
+POST    /api/groups                           (admin only — create group)
+GET     /api/groups/invite/:code              (public — fetch group info for join page)
+POST    /api/groups/join/:code                (join group; returns fresh JWT)
+POST    /api/groups/:id/regenerate-invite     (admin only)
+GET     /api/groups/:id/members
 GET     /api/groups/:id/messages
 POST    /api/groups/:id/messages
-POST    /api/groups/join
+POST    /api/groups/:id/export-audience
+DELETE  /api/groups/:id                       (admin only)
 ```
 
 ---
@@ -238,3 +286,6 @@ The taxonomy has 300+ signals. Keyword search fails for semantic matches — a u
 
 **Why store rejected signals in the conversation?**
 The AI has no memory between messages by default. Storing rejections in the database and injecting them into the system prompt each turn is the simplest way to give the AI persistent context without building a full memory layer.
+
+**Why a junction table for group membership?**
+The original design stored a single `group_id` on each user, limiting them to one group. A `user_groups` junction table makes membership many-to-many with no schema changes to the `users` table, and existing memberships are migrated automatically on first startup.

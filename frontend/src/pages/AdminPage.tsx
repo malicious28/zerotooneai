@@ -58,7 +58,7 @@ export default function AdminPage() {
   }
 
   const deleteGroup = async (groupId: string) => {
-    if (!window.confirm('Delete this group? This will remove all messages and disconnect members.')) return
+    if (!window.confirm('Delete this group? All messages and audience exports in this group will be permanently removed.')) return
     setDeletingId(groupId)
     try {
       await api.groups.delete(groupId)
@@ -124,9 +124,9 @@ export default function AdminPage() {
           {/* Stats */}
           <div className="grid grid-cols-4 gap-4 mb-8 max-w-5xl mx-auto">
             {[
-              { label: 'Total Conversations', value: conversations.length, valueColor: 'text-gray-800' },
+              { label: 'Total Audiences', value: conversations.length, valueColor: 'text-gray-800' },
               { label: 'Confirmed Audiences',  value: audiences.length,    valueColor: 'text-amber-600' },
-              { label: 'Active Sessions',       value: conversations.filter(c => c.status === 'active').length, valueColor: 'text-amber-600' },
+              { label: 'In Progress',       value: conversations.filter(c => c.status === 'active').length, valueColor: 'text-amber-600' },
               { label: 'Groups',                value: groups.length,       valueColor: 'text-amber-600', onClick: () => setTab('groups') },
             ].map(s => (
               <div
@@ -288,7 +288,7 @@ export default function AdminPage() {
               <div className="space-y-3">
                 {audiences.length === 0 && (
                   <div className="bg-gray-50 border border-gray-100 rounded-2xl p-16 text-center">
-                    <p className="text-sm text-gray-400">No confirmed audiences yet.</p>
+                    <p className="text-sm text-gray-400">No confirmed audiences yet. Planners confirm their audiences from the AI chat.</p>
                   </div>
                 )}
                 {audiences.map(a => (
@@ -320,7 +320,7 @@ export default function AdminPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-100">
-                      {['Title', 'User', 'Status', 'Messages', 'Updated'].map(h => (
+                      {['Audience Title', 'Planner', 'Status', 'Turns', 'Last Updated'].map(h => (
                         <th key={h} className="text-left px-5 py-3.5 text-xs font-medium text-gray-400 uppercase tracking-wide">{h}</th>
                       ))}
                     </tr>
@@ -334,7 +334,7 @@ export default function AdminPage() {
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                             c.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-yellow-200 text-yellow-800'
                           }`}>
-                            {c.status}
+                            {c.status === 'completed' ? 'Confirmed' : 'In Progress'}
                           </span>
                         </td>
                         <td className="px-5 py-3.5 text-gray-500">{c.message_count}</td>

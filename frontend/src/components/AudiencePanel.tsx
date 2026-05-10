@@ -66,7 +66,7 @@ export default function AudiencePanel({ signals, estimate, isConfirmed, onRemove
               </svg>
             </div>
             <p className="text-sm text-gray-400">No signals yet</p>
-            <p className="text-xs text-gray-300 mt-1">Chat with AI to build your audience</p>
+            <p className="text-xs text-gray-300 mt-1">Describe your target audience in the chat to generate signals</p>
           </div>
         ) : (
           signals.map(s => (
@@ -82,14 +82,14 @@ export default function AudiencePanel({ signals, estimate, isConfirmed, onRemove
             onClick={onConfirm}
             className="w-full bg-violet-600 hover:bg-violet-700 text-white font-medium py-2.5 rounded-xl text-sm transition-colors"
           >
-            Confirm Audience
+            Lock in Audience
           </button>
         </div>
       )}
       {isConfirmed && (
         <div className="px-4 pb-4 pt-2 border-t border-gray-100">
           <div className="bg-green-50 border border-green-100 text-green-700 text-sm text-center py-2.5 rounded-xl font-medium">
-            Audience Confirmed
+            Audience Locked In ✓
           </div>
         </div>
       )}

@@ -12,7 +12,7 @@ const gradientBorder = {
 export default function JoinPage() {
   const { code } = useParams<{ code: string }>()
   const navigate = useNavigate()
-  useAuth()
+  const { user, registerViaInvite } = useAuth()
 
   const [group, setGroup] = useState<any>(null)
   const [error, setError] = useState('')
@@ -21,6 +21,10 @@ export default function JoinPage() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+
+  useEffect(() => {
+    if (user) { navigate('/chat', { replace: true }); return }
+  }, [user, navigate])
 
   useEffect(() => {
     if (!code) return
@@ -36,9 +40,8 @@ export default function JoinPage() {
     setSubmitting(true)
     setError('')
     try {
-      const r = await api.auth.registerViaInvite(code, email, name, password)
-      localStorage.setItem('token', r.token)
-      navigate('/chat')
+      await registerViaInvite(code, email, name, password)
+      navigate('/chat', { replace: true })
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -134,7 +137,7 @@ export default function JoinPage() {
           </div>
         </div>
 
-        <p className="relative text-xs text-gray-300">© 2025 AudienceBuilder</p>
+        <p className="relative text-xs text-gray-300">© 2026 AudienceBuilder</p>
       </div>
 
       {/* Right — form panel */}

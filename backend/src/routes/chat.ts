@@ -345,28 +345,30 @@ router.post('/:conversationId/message', async (req: Request, res: Response) => {
     audience_estimate: updatedSignals.length > 0 ? estimate : undefined,
   }
 
+  const assistantNow = new Date().toISOString()
   const assistantMsgId = uuidv4()
   db.prepare('INSERT INTO messages (id, conversation_id, role, content, metadata, created_at) VALUES (?,?,?,?,?,?)')
-    .run(assistantMsgId, conversationId, 'assistant', finalText, JSON.stringify(metadata), now)
+    .run(assistantMsgId, conversationId, 'assistant', finalText, JSON.stringify(metadata), assistantNow)
 
-  // Set title on first user message (history had 0 messages before this one)
+  // Set title on first user message (history had exactly 1 entry — the user msg we just inserted)
   const isFirstTurn = history.length === 1
+  const conversationTitle = isFirstTurn ? generateTitle(content) : undefined
   if (isFirstTurn) {
     db.prepare('UPDATE conversations SET updated_at = ?, title = ? WHERE id = ?')
-      .run(now, generateTitle(content), conversationId)
+      .run(assistantNow, conversationTitle, conversationId)
   } else {
-    db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, conversationId)
+    db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(assistantNow, conversationId)
   }
 
   const assistantMsg = {
     id: assistantMsgId, conversation_id: conversationId, role: 'assistant',
-    content: finalText, sender_id: null, sender_name: null, metadata, created_at: now,
+    content: finalText, sender_id: null, sender_name: null, metadata, created_at: assistantNow,
   }
 
   emitConvAiThinking(conversationId, false)
   emitConvMessage(conversationId, assistantMsg)
 
-  res.json({ message: assistantMsg, signals: updatedSignals, audience_estimate: estimate })
+  res.json({ message: assistantMsg, signals: updatedSignals, audience_estimate: estimate, ...(conversationTitle ? { conversation_title: conversationTitle } : {}) })
 })
 
 // ── Get conversation participants ──────────────────────────────────────────────

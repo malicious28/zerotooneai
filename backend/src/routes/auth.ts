@@ -55,6 +55,7 @@ router.post('/register/invite/:code', (req: Request, res: Response) => {
   const id = uuidv4()
   const password_hash = bcrypt.hashSync(password, 10)
   db.prepare('INSERT INTO users (id, email, name, role, password_hash, group_id) VALUES (?,?,?,?,?,?)').run(id, email, name, 'planner', password_hash, group.id)
+  db.prepare('INSERT OR IGNORE INTO user_groups (user_id, group_id) VALUES (?,?)').run(id, group.id)
   const row = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as DbUser
   const user = rowToUser(row)
   res.status(201).json({ token: makeToken(user), user, group })
@@ -76,11 +77,18 @@ router.post('/login', (req: Request, res: Response) => {
   res.json({ token: makeToken(user), user })
 })
 
-// ── List all users (for conversation invite) ──────────────────────────────────
+// ── List platform-connected users (for conversation invite) ───────────────────
 
 router.get('/users', requireAuth, (req: Request, res: Response) => {
   const db = getDb()
-  const rows = db.prepare('SELECT id, name, email, role FROM users WHERE id != ? ORDER BY name ASC').all(req.user!.id) as any[]
+  // All users who belong to at least one group, excluding the requester
+  const rows = db.prepare(`
+    SELECT DISTINCT u.id, u.name, u.email, u.role
+    FROM users u
+    WHERE u.id != ?
+      AND EXISTS (SELECT 1 FROM user_groups ug WHERE ug.user_id = u.id)
+    ORDER BY u.name ASC
+  `).all(req.user!.id) as any[]
   res.json({ users: rows })
 })
 
@@ -93,13 +101,18 @@ router.get('/me', requireAuth, (req: Request, res: Response) => {
   if (!row) { res.status(404).json({ error: 'User not found' }); return }
   const user = rowToUser(row)
 
-  // If planner, include group info
-  let group: Group | null = null
-  if (user.group_id) {
-    group = db.prepare('SELECT g.*, u.name as admin_name FROM groups g JOIN users u ON g.admin_id = u.id WHERE g.id = ?').get(user.group_id) as Group
-  }
+  // Return all groups the user belongs to (via user_groups junction table)
+  const groups = db.prepare(`
+    SELECT g.*, u.name as admin_name,
+      (SELECT COUNT(*) FROM user_groups WHERE group_id = g.id) as member_count
+    FROM groups g
+    JOIN users u ON g.admin_id = u.id
+    JOIN user_groups ug ON ug.group_id = g.id
+    WHERE ug.user_id = ?
+    ORDER BY ug.joined_at ASC
+  `).all(user.id) as Group[]
 
-  res.json({ user, group })
+  res.json({ user, groups })
 })
 
 export default router

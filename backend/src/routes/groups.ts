@@ -1,15 +1,25 @@
 import { Router, Request, Response } from 'express'
 import { randomBytes } from 'crypto'
 import { v4 as uuidv4 } from 'uuid'
+import jwt from 'jsonwebtoken'
 import { getDb } from '../db/database'
+import { config } from '../config'
 import { requireAuth, requireAdmin } from '../middleware/auth'
-import { Group, GroupMessage } from '../types'
+import { Group, GroupMessage, DbUser, User } from '../types'
 import { emitGroupMessage, emitGroupAudienceExport } from '../socket'
 
 const router = Router()
 
 function generateInviteCode(): string {
   return randomBytes(8).toString('base64url').slice(0, 12)
+}
+
+function rowToUser(row: DbUser): User {
+  return { id: row.id, email: row.email, name: row.name, role: row.role, group_id: row.group_id, created_at: row.created_at }
+}
+
+function makeToken(user: User): string {
+  return jwt.sign(user, config.jwtSecret, { expiresIn: config.jwtExpiresIn })
 }
 
 // ── Admin: create a group ─────────────────────────────────────────────────────
@@ -22,21 +32,24 @@ router.post('/', requireAuth, requireAdmin, (req: Request, res: Response) => {
   const id = uuidv4()
   const invite_code = generateInviteCode()
   db.prepare('INSERT INTO groups (id, name, admin_id, invite_code) VALUES (?,?,?,?)').run(id, name.trim(), req.user!.id, invite_code)
+  db.prepare('INSERT OR IGNORE INTO user_groups (user_id, group_id) VALUES (?,?)').run(req.user!.id, id)
 
   const group = db.prepare('SELECT * FROM groups WHERE id = ?').get(id) as Group
   res.status(201).json({ group, invite_code })
 })
 
-// ── Admin: list own groups ────────────────────────────────────────────────────
+// ── List groups the current user belongs to ───────────────────────────────────
 
 router.get('/', requireAuth, (req: Request, res: Response) => {
   const db = getDb()
   const groups = db.prepare(`
     SELECT g.*, u.name as admin_name,
-      (SELECT COUNT(*) FROM users WHERE group_id = g.id) as member_count
+      (SELECT COUNT(*) FROM user_groups WHERE group_id = g.id) as member_count
     FROM groups g JOIN users u ON g.admin_id = u.id
-    ORDER BY g.created_at DESC
-  `).all() as Group[]
+    JOIN user_groups ug ON ug.group_id = g.id
+    WHERE ug.user_id = ?
+    ORDER BY ug.joined_at ASC
+  `).all(req.user!.id) as Group[]
   res.json({ groups })
 })
 
@@ -46,13 +59,37 @@ router.get('/invite/:code', (req: Request, res: Response) => {
   const db = getDb()
   const group = db.prepare(`
     SELECT g.id, g.name, g.invite_code, u.name as admin_name,
-      (SELECT COUNT(*) FROM users WHERE group_id = g.id) as member_count
+      (SELECT COUNT(*) FROM user_groups WHERE group_id = g.id) as member_count
     FROM groups g JOIN users u ON g.admin_id = u.id
     WHERE g.invite_code = ?
   `).get(req.params['code']) as Group | undefined
 
   if (!group) { res.status(404).json({ error: 'Invalid invite link' }); return }
   res.json({ group })
+})
+
+// ── Existing user joins a group via invite code ───────────────────────────────
+
+router.post('/join/:code', requireAuth, (req: Request, res: Response) => {
+  const db = getDb()
+  const group = db.prepare(`
+    SELECT g.*, u.name as admin_name,
+      (SELECT COUNT(*) FROM users WHERE group_id = g.id) as member_count
+    FROM groups g JOIN users u ON g.admin_id = u.id
+    WHERE g.invite_code = ?
+  `).get(req.params['code']) as Group | undefined
+  if (!group) { res.status(404).json({ error: 'Invalid invite link' }); return }
+
+  const alreadyMember = !!db.prepare('SELECT 1 FROM user_groups WHERE user_id = ? AND group_id = ?').get(req.user!.id, group.id)
+  if (alreadyMember) { res.status(400).json({ error: 'You are already a member of this group' }); return }
+
+  db.prepare('INSERT OR IGNORE INTO user_groups (user_id, group_id) VALUES (?,?)').run(req.user!.id, group.id)
+
+  const row = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user!.id) as DbUser
+  const updatedUser = rowToUser(row)
+  const token = makeToken(updatedUser)
+
+  res.json({ ok: true, group, token, user: updatedUser })
 })
 
 // ── Regenerate invite code ────────────────────────────────────────────────────
@@ -74,12 +111,15 @@ router.get('/:id/members', requireAuth, (req: Request, res: Response) => {
   const group = db.prepare('SELECT * FROM groups WHERE id = ?').get(req.params['id']) as Group | undefined
   if (!group) { res.status(404).json({ error: 'Group not found' }); return }
 
-  // Only admin of the group or members can see members
-  const isMember = req.user!.group_id === req.params['id']
+  const isMember = !!db.prepare('SELECT 1 FROM user_groups WHERE user_id = ? AND group_id = ?').get(req.user!.id, req.params['id'])
   const isGroupAdmin = group.admin_id === req.user!.id
   if (!isMember && !isGroupAdmin) { res.status(403).json({ error: 'Forbidden' }); return }
 
-  const members = db.prepare('SELECT id, name, email, role, created_at FROM users WHERE group_id = ?').all(req.params['id'])
+  const members = db.prepare(`
+    SELECT u.id, u.name, u.email, u.role, u.created_at
+    FROM users u JOIN user_groups ug ON ug.user_id = u.id
+    WHERE ug.group_id = ?
+  `).all(req.params['id'])
   res.json({ members })
 })
 
@@ -90,7 +130,7 @@ router.get('/:id/messages', requireAuth, (req: Request, res: Response) => {
   const group = db.prepare('SELECT * FROM groups WHERE id = ?').get(req.params['id']) as Group | undefined
   if (!group) { res.status(404).json({ error: 'Group not found' }); return }
 
-  const isMember = req.user!.group_id === req.params['id']
+  const isMember = !!db.prepare('SELECT 1 FROM user_groups WHERE user_id = ? AND group_id = ?').get(req.user!.id, req.params['id'])
   const isGroupAdmin = group.admin_id === req.user!.id
   if (!isMember && !isGroupAdmin) { res.status(403).json({ error: 'Forbidden' }); return }
 
@@ -123,7 +163,7 @@ router.post('/:id/messages', requireAuth, (req: Request, res: Response) => {
   const group = db.prepare('SELECT * FROM groups WHERE id = ?').get(req.params['id']) as Group | undefined
   if (!group) { res.status(404).json({ error: 'Group not found' }); return }
 
-  const isMember = req.user!.group_id === req.params['id']
+  const isMember = !!db.prepare('SELECT 1 FROM user_groups WHERE user_id = ? AND group_id = ?').get(req.user!.id, req.params['id'])
   const isGroupAdmin = group.admin_id === req.user!.id
   if (!isMember && !isGroupAdmin) { res.status(403).json({ error: 'Forbidden' }); return }
 
@@ -152,7 +192,7 @@ router.delete('/:id', requireAuth, requireAdmin, (req: Request, res: Response) =
   if (!group) { res.status(404).json({ error: 'Group not found' }); return }
 
   db.prepare('DELETE FROM group_messages WHERE group_id = ?').run(req.params['id'])
-  db.prepare('UPDATE users SET group_id = NULL WHERE group_id = ?').run(req.params['id'])
+  db.prepare('DELETE FROM user_groups WHERE group_id = ?').run(req.params['id'])
   db.prepare('DELETE FROM groups WHERE id = ?').run(req.params['id'])
   res.json({ ok: true })
 })
@@ -164,7 +204,7 @@ router.post('/:id/export-audience', requireAuth, (req: Request, res: Response) =
   const group = db.prepare('SELECT * FROM groups WHERE id = ?').get(req.params['id']) as Group | undefined
   if (!group) { res.status(404).json({ error: 'Group not found' }); return }
 
-  const isMember = req.user!.group_id === req.params['id']
+  const isMember = !!db.prepare('SELECT 1 FROM user_groups WHERE user_id = ? AND group_id = ?').get(req.user!.id, req.params['id'])
   const isGroupAdmin = group.admin_id === req.user!.id
   if (!isMember && !isGroupAdmin) { res.status(403).json({ error: 'Forbidden' }); return }
 

@@ -92,11 +92,20 @@ function initSchema(db: Database.Database) {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS user_groups (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+      joined_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (user_id, group_id)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_conversations_user ON conversations(user_id);
     CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id);
     CREATE INDEX IF NOT EXISTS idx_group_messages_group ON group_messages(group_id);
     CREATE INDEX IF NOT EXISTS idx_users_group ON users(group_id);
     CREATE INDEX IF NOT EXISTS idx_conv_participants ON conversation_participants(conversation_id);
+    CREATE INDEX IF NOT EXISTS idx_user_groups_user ON user_groups(user_id);
+    CREATE INDEX IF NOT EXISTS idx_user_groups_group ON user_groups(group_id);
   `)
 
   // Migrations for existing databases (safe to run repeatedly)
@@ -109,4 +118,13 @@ function initSchema(db: Database.Database) {
   for (const sql of migrations) {
     try { db.exec(sql) } catch { /* column already exists */ }
   }
+
+  // Migrate legacy single group_id memberships into user_groups
+  try {
+    db.exec(`INSERT OR IGNORE INTO user_groups (user_id, group_id) SELECT id, group_id FROM users WHERE group_id IS NOT NULL`)
+  } catch {}
+  // Ensure group admins are also members of their own groups
+  try {
+    db.exec(`INSERT OR IGNORE INTO user_groups (user_id, group_id) SELECT admin_id, id FROM groups`)
+  } catch {}
 }
