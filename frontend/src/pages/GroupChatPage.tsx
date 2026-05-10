@@ -72,24 +72,30 @@ export default function GroupChatPage({ groupId, groupName, inviteCode, onConver
 
     const socket = getSocket()
     socket.emit('join_group', groupId)
-    socket.on('group:message', (msg: any) => {
+
+    const onGroupMessage = (msg: any) => {
       setMessages(prev => prev.find(m => m.id === msg.id) ? prev : [...prev, msg])
-    })
-    socket.on('group:audience_export', (msg: any) => {
+    }
+    const onGroupAudienceExport = (msg: any) => {
       setMessages(prev => prev.find(m => m.id === msg.id) ? prev : [...prev, msg])
-    })
-    socket.on('group:user_typing', ({ user_id, name, isTyping }: any) => {
+    }
+    const onGroupTyping = ({ user_id, name, isTyping }: any) => {
       setTypingUsers(prev => {
         const next = new Map(prev)
         if (isTyping) next.set(user_id, name)
         else next.delete(user_id)
         return next
       })
-    })
+    }
+
+    socket.on('group:message', onGroupMessage)
+    socket.on('group:audience_export', onGroupAudienceExport)
+    socket.on('group:user_typing', onGroupTyping)
+
     return () => {
-      socket.off('group:message')
-      socket.off('group:audience_export')
-      socket.off('group:user_typing')
+      socket.off('group:message', onGroupMessage)
+      socket.off('group:audience_export', onGroupAudienceExport)
+      socket.off('group:user_typing', onGroupTyping)
     }
   }, [groupId])
 
@@ -200,7 +206,7 @@ export default function GroupChatPage({ groupId, groupName, inviteCode, onConver
           }
           return (
             <div key={m.id} className={`flex flex-col gap-0.5 ${isMe ? 'items-end' : 'items-start'}`}>
-              <span className="text-xs text-gray-400 px-1">{m.user_name}</span>
+              {!isMe && <span className="text-xs text-gray-400 px-1">{m.user_name}</span>}
               <div
                 className={`max-w-[80%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
                   isMe

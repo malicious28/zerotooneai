@@ -165,29 +165,48 @@ export default function ChatPage() {
     }).finally(() => setLoading(false))
 
     socket.emit('join_conversation', activeConvId)
-    socket.on('conv:message', (msg: Message) => {
-      setMessages(prev => prev.find(m => m.id === msg.id) ? prev : [...prev, msg])
-    })
-    socket.on('conv:ai_thinking', ({ thinking }: { thinking: boolean }) => {
+
+    const onConvMessage = (msg: Message) => {
+      setMessages(prev => {
+        // Own user message arriving via socket: replace the optimistic temp instead of duplicating
+        if (msg.role === 'user' && msg.sender_id) {
+          const tempIdx = prev.findIndex(m => m.id.startsWith('temp_') && m.sender_id === msg.sender_id)
+          if (tempIdx !== -1) {
+            const next = [...prev]
+            next[tempIdx] = msg
+            return next
+          }
+        }
+        return prev.find(m => m.id === msg.id) ? prev : [...prev, msg]
+      })
+    }
+    const onAiThinking = ({ thinking }: { thinking: boolean }) => {
       setAiThinking(thinking)
       if (!thinking) setSending(false)
-    })
-    socket.on('conv:participant_joined', (p: any) => {
+    }
+    const onParticipantJoined = (p: any) => {
       setParticipants(prev => prev.find(x => x.user_id === p.user_id) ? prev : [...prev, p])
-    })
-    socket.on('conv:participant_left', (p: any) => {
+    }
+    const onParticipantLeft = (p: any) => {
       setParticipants(prev => prev.filter(x => x.user_id !== p.user_id))
-    })
-    socket.on('conv:signals_updated', ({ signals: s, audience_estimate: e }: { signals: any[]; audience_estimate: any }) => {
+    }
+    const onSignalsUpdated = ({ signals: s, audience_estimate: e }: { signals: any[]; audience_estimate: any }) => {
       setSignals(s)
       setEstimate(e)
-    })
+    }
+
+    socket.on('conv:message', onConvMessage)
+    socket.on('conv:ai_thinking', onAiThinking)
+    socket.on('conv:participant_joined', onParticipantJoined)
+    socket.on('conv:participant_left', onParticipantLeft)
+    socket.on('conv:signals_updated', onSignalsUpdated)
+
     return () => {
-      socket.off('conv:message')
-      socket.off('conv:ai_thinking')
-      socket.off('conv:participant_joined')
-      socket.off('conv:participant_left')
-      socket.off('conv:signals_updated')
+      socket.off('conv:message', onConvMessage)
+      socket.off('conv:ai_thinking', onAiThinking)
+      socket.off('conv:participant_joined', onParticipantJoined)
+      socket.off('conv:participant_left', onParticipantLeft)
+      socket.off('conv:signals_updated', onSignalsUpdated)
     }
   }, [activeConvId])
 
@@ -199,10 +218,15 @@ export default function ChatPage() {
     if (!text.trim() || sending || aiThinking) return
     setSending(true)
     const tempId = 'temp_' + Date.now()
-    setMessages(prev => [...prev, { id: tempId, role: 'user', content: text, sender_id: user?.id, sender_name: user?.name, created_at: new Date().toISOString() }])
+    setMessages(prev => [...prev, { id: tempId, role: 'user' as const, content: text, sender_id: user?.id, sender_name: user?.name, created_at: new Date().toISOString() }])
     try {
       const r = await api.chat.send(convId, text)
-      setMessages(prev => prev.map(m => m.id === tempId ? { ...r.message, role: 'user' as const, content: text, sender_id: user?.id, sender_name: user?.name } : m))
+      // r.message is the ASSISTANT response — the real user message arrives via socket.
+      // Remove the temp (no-op if socket already replaced it) and add the assistant if not yet there.
+      setMessages(prev => {
+        const withoutTemp = prev.filter(m => m.id !== tempId)
+        return withoutTemp.find(m => m.id === r.message.id) ? withoutTemp : [...withoutTemp, r.message]
+      })
       setSignals(r.signals)
       setEstimate(r.audience_estimate)
     } catch (err: any) {
@@ -760,7 +784,9 @@ export default function ChatPage() {
                     )}
                     {messages.map(m => {
                       const isMe = m.sender_id === user?.id || (m.role === 'user' && !m.sender_id)
-                      const senderLabel = m.role === 'user' ? (isMe ? null : m.sender_name ?? 'Unknown') : null
+                      const senderLabel = m.role === 'user'
+                        ? (m.sender_name ?? (isMe ? user?.name ?? null : 'Unknown'))
+                        : null
                       return (
                         <div key={m.id} className={`flex flex-col gap-0.5 ${m.role === 'user' ? (isMe ? 'items-end' : 'items-start') : 'items-start'}`}>
                           {senderLabel && <span className="text-xs text-gray-400 px-1 mb-0.5">{senderLabel}</span>}
