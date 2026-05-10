@@ -440,9 +440,11 @@ export default function ChatPage() {
               <span className="truncate">{group.name}</span>
             </button>
           )}
-          <Link to="/admin" className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors">
-            <IcAdmin /> Admin
-          </Link>
+          {user?.role === 'admin' && (
+            <Link to="/admin" className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors">
+              <IcAdmin /> Admin
+            </Link>
+          )}
         </nav>
 
         {/* Conversation history */}
