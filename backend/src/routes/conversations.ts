@@ -91,6 +91,21 @@ router.post('/:id/confirm', (req: Request, res: Response) => {
   res.json({ ok: true })
 })
 
+// Delete conversation (owner or admin)
+router.delete('/:id', (req: Request, res: Response) => {
+  const db = getDb()
+  const conv = db.prepare('SELECT * FROM conversations WHERE id = ?').get(req.params['id']) as Conversation | undefined
+  if (!conv) { res.status(404).json({ error: 'Not found' }); return }
+  if (req.user!.role !== 'admin' && conv.user_id !== req.user!.id) {
+    res.status(403).json({ error: 'Forbidden' }); return
+  }
+  db.prepare('DELETE FROM messages WHERE conversation_id = ?').run(req.params['id'])
+  db.prepare('DELETE FROM conversation_signals WHERE conversation_id = ?').run(req.params['id'])
+  db.prepare('DELETE FROM conversation_participants WHERE conversation_id = ?').run(req.params['id'])
+  db.prepare('DELETE FROM conversations WHERE id = ?').run(req.params['id'])
+  res.json({ ok: true })
+})
+
 // Admin: list all confirmed audiences
 router.get('/admin/confirmed', requireAdmin, (req: Request, res: Response) => {
   const db = getDb()

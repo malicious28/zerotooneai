@@ -74,6 +74,24 @@ router.post('/login', (req: Request, res: Response) => {
   res.json({ token: makeToken(user), user })
 })
 
+// ── Promote self to admin (dev convenience) ───────────────────────────────────
+
+router.post('/make-admin', requireAuth, (req: Request, res: Response) => {
+  const db = getDb()
+  db.prepare('UPDATE users SET role = ? WHERE id = ?').run('admin', req.user!.id)
+  const row = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user!.id) as DbUser
+  const user = rowToUser(row)
+  res.json({ token: makeToken(user), user })
+})
+
+// ── List all users (for conversation invite) ──────────────────────────────────
+
+router.get('/users', requireAuth, (req: Request, res: Response) => {
+  const db = getDb()
+  const rows = db.prepare('SELECT id, name, email, role FROM users WHERE id != ? ORDER BY name ASC').all(req.user!.id) as any[]
+  res.json({ users: rows })
+})
+
 // ── Me ────────────────────────────────────────────────────────────────────────
 
 router.get('/me', requireAuth, (req: Request, res: Response) => {

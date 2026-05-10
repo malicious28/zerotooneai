@@ -6,7 +6,7 @@ import { config } from '../config'
 import { requireAuth } from '../middleware/auth'
 import { getAllSignals, searchSignals, findSignalById } from '../data/loader'
 import { semanticSearch, isEmbeddingReady } from '../data/embeddings'
-import { emitConvMessage, emitConvAiThinking, emitConvInvite } from '../socket'
+import { emitConvMessage, emitConvAiThinking, emitConvInvite, emitConvSignalsUpdated } from '../socket'
 import { AudienceSignal, AudienceEstimate, MessageMetadata, Conversation, ConversationParticipant } from '../types'
 
 const router = Router()
@@ -17,7 +17,7 @@ const client = new OpenAI({ apiKey: config.openaiApiKey })
 // Pre-load taxonomy at startup
 getAllSignals()
 
-// ── System prompt ─────────────────────────────────────────────────────────────
+// ── System prompt ──────────────────────────────────────────────────────────────
 
 function buildSystemPrompt(relevantSignals: AudienceSignal[], rejectedIds: string[]): string {
   const rejectedNames = rejectedIds
@@ -75,7 +75,7 @@ Planner: "Fitness enthusiasts aged 25-40 with premium habits"
 ${relevantSignals.map(s => `[${s.id}] ${s.name} (${s.type}) — ${s.description} | reach: ${s.reach_pct}%`).join('\n')}`
 }
 
-// ── Tool definition ───────────────────────────────────────────────────────────
+// ── Tool definition ────────────────────────────────────────────────────────────
 
 const TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
@@ -109,7 +109,7 @@ const TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   },
 ]
 
-// ── Reach estimation ──────────────────────────────────────────────────────────
+// ── Reach estimation ───────────────────────────────────────────────────────────
 
 const ADDRESSABLE_UNIVERSE = 500_000_000
 
@@ -118,24 +118,31 @@ function estimateReach(signals: AudienceSignal[]): AudienceEstimate {
     return { total_reach: 0, reach_percentage: 0, confidence: 'low', breakdown: [] }
   }
 
+  // Group signals by type
   const byType = signals.reduce<Record<string, AudienceSignal[]>>((acc, s) => {
     acc[s.type] = acc[s.type] ?? []
     acc[s.type]!.push(s)
     return acc
   }, {})
 
-  // Within type: OR (additive, capped at 90% of universe)
+  // Within each type: OR logic (additive, capped at 90%)
   const typeReaches = Object.values(byType).map(group =>
-    Math.min(group.reduce((sum, s) => sum + s.reach_pct / 100, 0), 0.9)
+    Math.min(group.reduce((sum, s) => sum + s.reach_pct / 100, 0), 0.9),
   )
 
-  // Across types: AND (multiplicative) with 1.4x positive correlation boost
+  // Across types: AND logic with positive-correlation boost
+  // Real audience attributes cluster together (location + demographic + interest overlap
+  // more than pure statistical independence predicts), so we apply a 1.4× boost to the
+  // multiplicative AND, then cap at 92% of the smaller individual type reach.
   let combined = typeReaches[0]!
   for (let i = 1; i < typeReaches.length; i++) {
-    combined = Math.min(combined * typeReaches[i]! * 1.4, Math.min(combined, typeReaches[i]!))
+    const andWithBoost = combined * typeReaches[i]! * 1.4
+    const ceiling = Math.min(combined, typeReaches[i]!) * 0.92
+    combined = Math.min(andWithBoost, ceiling)
   }
 
-  const pct = Math.round(Math.min(combined * 100, 90) * 10) / 10
+  const pct = Math.round(Math.min(Math.max(combined * 100, 0), 90) * 10) / 10
+
   return {
     total_reach: Math.round(ADDRESSABLE_UNIVERSE * pct / 100),
     reach_percentage: pct,
@@ -148,10 +155,7 @@ function estimateReach(signals: AudienceSignal[]): AudienceEstimate {
   }
 }
 
-// ── Reject memory helpers ─────────────────────────────────────────────────────
-
-// Store rejected signal IDs per conversation in the DB metadata column on the conversation row.
-// We piggyback on a JSON column rather than a new table for simplicity.
+// ── Reject memory helpers ──────────────────────────────────────────────────────
 
 function getRejectedIds(conversationId: string): string[] {
   const db = getDb()
@@ -164,62 +168,86 @@ function addRejectedId(conversationId: string, signalId: string) {
   const db = getDb()
   const current = getRejectedIds(conversationId)
   if (!current.includes(signalId)) {
-    const updated = [...current, signalId]
-    db.prepare('UPDATE conversations SET rejected_signals = ? WHERE id = ?').run(JSON.stringify(updated), conversationId)
+    db.prepare('UPDATE conversations SET rejected_signals = ? WHERE id = ?')
+      .run(JSON.stringify([...current, signalId]), conversationId)
   }
 }
 
-// ── Chat endpoint ─────────────────────────────────────────────────────────────
+// ── Smart title from first message ────────────────────────────────────────────
+
+function generateTitle(text: string): string {
+  // Strip leading/trailing whitespace, collapse internal runs of spaces
+  const clean = text.trim().replace(/\s+/g, ' ')
+  if (clean.length <= 48) return clean
+  // Cut at last word boundary before 48 chars
+  const cut = clean.slice(0, 48)
+  const lastSpace = cut.lastIndexOf(' ')
+  return (lastSpace > 20 ? cut.slice(0, lastSpace) : cut) + '…'
+}
+
+// ── Chat endpoint ──────────────────────────────────────────────────────────────
 
 type OAIMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam
 
 router.post('/:conversationId/message', async (req: Request, res: Response) => {
   const { conversationId } = req.params
   const { content } = req.body
+
   if (!content?.trim()) { res.status(400).json({ error: 'content required' }); return }
+  if (content.length > 4000) { res.status(400).json({ error: 'Message too long (max 4000 chars)' }); return }
 
   const db = getDb()
   const conv = db.prepare('SELECT * FROM conversations WHERE id = ?').get(conversationId) as Conversation | undefined
   if (!conv) { res.status(404).json({ error: 'Conversation not found' }); return }
-  if (req.user!.role !== 'admin' && conv.user_id !== req.user!.id) {
+
+  // Allow: owner, admin, or invited participant
+  const isParticipant = db.prepare('SELECT 1 FROM conversation_participants WHERE conversation_id = ? AND user_id = ?')
+    .get(conversationId, req.user!.id)
+  if (req.user!.role !== 'admin' && conv.user_id !== req.user!.id && !isParticipant) {
     res.status(403).json({ error: 'Forbidden' }); return
+  }
+
+  // Guard: don't allow chat on a confirmed conversation
+  if (conv.status === 'completed') {
+    res.status(400).json({ error: 'Audience already confirmed. Start a new conversation to build another.' })
+    return
   }
 
   const now = new Date().toISOString()
 
-  // Ensure sender is a participant
+  // Ensure sender is tracked as a participant
   db.prepare('INSERT OR IGNORE INTO conversation_participants (conversation_id, user_id) VALUES (?,?)').run(conversationId, req.user!.id)
 
-  // Persist user message with sender info
+  // Persist user message
   const userMsgId = uuidv4()
   db.prepare('INSERT INTO messages (id, conversation_id, role, content, sender_id, sender_name, created_at) VALUES (?,?,?,?,?,?,?)')
-    .run(userMsgId, conversationId, 'user', content, req.user!.id, req.user!.name, now)
+    .run(userMsgId, conversationId, 'user', content.trim(), req.user!.id, req.user!.name, now)
 
-  // Broadcast user message to all conversation participants
-  emitConvMessage(conversationId, { id: userMsgId, conversation_id: conversationId, role: 'user', content, sender_id: req.user!.id, sender_name: req.user!.name, metadata: null, created_at: now })
+  // Broadcast user message to other participants immediately
+  emitConvMessage(conversationId, {
+    id: userMsgId, conversation_id: conversationId, role: 'user',
+    content: content.trim(), sender_id: req.user!.id, sender_name: req.user!.name,
+    metadata: null, created_at: now,
+  })
 
-  // Signal AI is thinking
   emitConvAiThinking(conversationId, true)
 
-  // Build conversation history
-  const history = db.prepare('SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC')
+  // Build conversation history (last 20 turns to manage token budget)
+  const history = db.prepare('SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC LIMIT 40')
     .all(conversationId) as Array<{ role: string; content: string }>
 
-  // Load current signals and rejected signal IDs
+  // Load current signals + rejection list
   const sigRow = db.prepare('SELECT signals FROM conversation_signals WHERE conversation_id = ?').get(conversationId) as any
   let currentSignals: AudienceSignal[] = sigRow ? JSON.parse(sigRow.signals) : []
   const rejectedIds = getRejectedIds(conversationId)
 
-  // Build context query from recent messages for signal retrieval
-  const recentText = history.slice(-4).map(m => m.content).join(' ')
-  const contextQuery = `${content} ${recentText}`
-
-  // Retrieve relevant signals — semantic if embeddings ready, keyword fallback
-  const relevantSignals = isEmbeddingReady()
+  // Retrieve relevant signals — semantic (preferred) or keyword fallback
+  const contextQuery = `${content} ${history.slice(-4).map(m => m.content).join(' ')}`
+  const relevantSignals: AudienceSignal[] = isEmbeddingReady()
     ? await semanticSearch(contextQuery, 35)
     : searchSignals(contextQuery, 35)
 
-  // Always include currently selected signals in the context
+  // Always include currently selected signals in context
   for (const s of currentSignals) {
     if (!relevantSignals.find(r => r.id === s.id)) relevantSignals.push(s)
   }
@@ -229,62 +257,86 @@ router.post('/:conversationId/message', async (req: Request, res: Response) => {
     ...history.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
   ]
 
-  // ── Agentic loop ──────────────────────────────────────────────────────────
+  // ── Agentic loop ───────────────────────────────────────────────────────────
   let finalText = ''
   let updatedSignals = currentSignals
   const MAX_TURNS = 3
 
-  for (let turn = 0; turn < MAX_TURNS; turn++) {
-    const response = await client.chat.completions.create({
-      model: 'gpt-4o-mini',
-      max_tokens: 1024,
-      tools: TOOLS,
-      tool_choice: 'auto',
-      messages: oaiMessages,
-    })
+  try {
+    for (let turn = 0; turn < MAX_TURNS; turn++) {
+      const response = await client.chat.completions.create({
+        model: 'gpt-4o-mini',
+        max_tokens: 1024,
+        tools: TOOLS,
+        tool_choice: 'auto',
+        messages: oaiMessages,
+      })
 
-    const choice = response.choices[0]!
-    oaiMessages.push(choice.message as OAIMessage)
+      const choice = response.choices[0]!
+      oaiMessages.push(choice.message as OAIMessage)
 
-    if (choice.finish_reason === 'tool_calls' && choice.message.tool_calls) {
-      for (const toolCall of choice.message.tool_calls) {
-        if (toolCall.function.name === 'suggest_audience_signals') {
-          const args = JSON.parse(toolCall.function.arguments) as {
-            signals: Array<{ signal_id: string; reason: string }>
-            summary: string
+      if (choice.finish_reason === 'tool_calls' && choice.message.tool_calls) {
+        for (const toolCall of choice.message.tool_calls) {
+          if (toolCall.function.name === 'suggest_audience_signals') {
+            let args: { signals: Array<{ signal_id: string; reason: string }>; summary: string }
+            try {
+              args = JSON.parse(toolCall.function.arguments)
+            } catch {
+              // Malformed tool args — skip this tool call
+              oaiMessages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify({ error: 'Invalid arguments' }) })
+              continue
+            }
+
+            // Resolve signal IDs — skip rejected or unknown
+            const resolved = args.signals
+              .filter(s => !rejectedIds.includes(s.signal_id))
+              .map(s => {
+                const found = findSignalById(s.signal_id)
+                if (!found) console.warn(`[chat] Unknown signal ID from AI: ${s.signal_id}`)
+                return found
+              })
+              .filter((s): s is AudienceSignal => s !== undefined)
+
+            updatedSignals = resolved
+
+            db.prepare('UPDATE conversation_signals SET signals = ?, updated_at = ? WHERE conversation_id = ?')
+              .run(JSON.stringify(updatedSignals), new Date().toISOString(), conversationId)
+
+            const estimate = estimateReach(updatedSignals)
+
+            oaiMessages.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              content: JSON.stringify({
+                ok: true,
+                resolved_count: updatedSignals.length,
+                signals: updatedSignals.map(s => ({ id: s.id, name: s.name, reach_pct: s.reach_pct })),
+                combined_reach_pct: estimate.reach_percentage,
+                summary: args.summary,
+              }),
+            })
           }
-
-          // Resolve IDs — filter out any rejected or unknown signals
-          const resolved = args.signals
-            .filter(s => !rejectedIds.includes(s.signal_id))
-            .map(s => findSignalById(s.signal_id))
-            .filter((s): s is AudienceSignal => s !== undefined)
-
-          updatedSignals = resolved
-
-          const updatedNow = new Date().toISOString()
-          db.prepare('UPDATE conversation_signals SET signals = ?, updated_at = ? WHERE conversation_id = ?')
-            .run(JSON.stringify(updatedSignals), updatedNow, conversationId)
-
-          const estimate = estimateReach(updatedSignals)
-          oaiMessages.push({
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: JSON.stringify({
-              ok: true,
-              resolved_count: updatedSignals.length,
-              signals: updatedSignals.map(s => ({ id: s.id, name: s.name, reach_pct: s.reach_pct })),
-              combined_reach_pct: estimate.reach_percentage,
-              summary: args.summary,
-            }),
-          })
         }
+        continue
       }
-      continue
+
+      finalText = choice.message.content ?? ''
+      break
     }
 
-    finalText = choice.message.content ?? ''
-    break
+    // Fallback: if AI used all turns on tool calls and never wrote a reply,
+    // produce a concise summary so the user never sees a blank message.
+    if (!finalText.trim()) {
+      const signalNames = updatedSignals.map(s => s.name).slice(0, 4).join(', ')
+      finalText = updatedSignals.length > 0
+        ? `I've updated your audience with ${updatedSignals.length} signals: ${signalNames}${updatedSignals.length > 4 ? ' and more' : ''}. Does this look right, or would you like to refine it?`
+        : 'I\'ve noted your preferences. Could you share a bit more about your target audience — for example, their age range, location, or key interests?'
+    }
+  } catch (err: any) {
+    console.error('[chat] OpenAI error:', err?.message)
+    emitConvAiThinking(conversationId, false)
+    res.status(502).json({ error: 'AI service unavailable. Please try again.' })
+    return
   }
 
   const estimate = estimateReach(updatedSignals)
@@ -297,47 +349,49 @@ router.post('/:conversationId/message', async (req: Request, res: Response) => {
   db.prepare('INSERT INTO messages (id, conversation_id, role, content, metadata, created_at) VALUES (?,?,?,?,?,?)')
     .run(assistantMsgId, conversationId, 'assistant', finalText, JSON.stringify(metadata), now)
 
+  // Set title on first user message (history had 0 messages before this one)
   const isFirstTurn = history.length === 1
   if (isFirstTurn) {
-    const title = content.length > 50 ? content.slice(0, 50) + '…' : content
-    db.prepare('UPDATE conversations SET updated_at = ?, title = ? WHERE id = ?').run(now, title, conversationId)
+    db.prepare('UPDATE conversations SET updated_at = ?, title = ? WHERE id = ?')
+      .run(now, generateTitle(content), conversationId)
   } else {
     db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, conversationId)
   }
 
-  const assistantMsg = { id: assistantMsgId, conversation_id: conversationId, role: 'assistant', content: finalText, sender_id: null, sender_name: null, metadata, created_at: now }
+  const assistantMsg = {
+    id: assistantMsgId, conversation_id: conversationId, role: 'assistant',
+    content: finalText, sender_id: null, sender_name: null, metadata, created_at: now,
+  }
 
-  // Stop thinking indicator and broadcast AI reply to all participants
   emitConvAiThinking(conversationId, false)
   emitConvMessage(conversationId, assistantMsg)
 
-  res.json({
-    message: assistantMsg,
-    signals: updatedSignals,
-    audience_estimate: estimate,
-  })
+  res.json({ message: assistantMsg, signals: updatedSignals, audience_estimate: estimate })
 })
 
-// ── Get conversation participants ─────────────────────────────────────────────
+// ── Get conversation participants ──────────────────────────────────────────────
 
 router.get('/:conversationId/participants', (req: Request, res: Response) => {
   const db = getDb()
   const conv = db.prepare('SELECT * FROM conversations WHERE id = ?').get(req.params['conversationId']) as Conversation | undefined
   if (!conv) { res.status(404).json({ error: 'Not found' }); return }
-  if (req.user!.role !== 'admin' && conv.user_id !== req.user!.id) {
-    // Also allow participants
-    const isParticipant = db.prepare('SELECT 1 FROM conversation_participants WHERE conversation_id = ? AND user_id = ?').get(req.params['conversationId'], req.user!.id)
-    if (!isParticipant) { res.status(403).json({ error: 'Forbidden' }); return }
+
+  const isParticipant = db.prepare('SELECT 1 FROM conversation_participants WHERE conversation_id = ? AND user_id = ?')
+    .get(req.params['conversationId'], req.user!.id)
+  if (req.user!.role !== 'admin' && conv.user_id !== req.user!.id && !isParticipant) {
+    res.status(403).json({ error: 'Forbidden' }); return
   }
+
   const participants = db.prepare(`
     SELECT u.id as user_id, u.name, u.email, cp.joined_at
     FROM conversation_participants cp JOIN users u ON cp.user_id = u.id
     WHERE cp.conversation_id = ? ORDER BY cp.joined_at ASC
   `).all(req.params['conversationId']) as ConversationParticipant[]
+
   res.json({ participants })
 })
 
-// ── Invite a group member to a conversation ───────────────────────────────────
+// ── Invite a group member to a conversation ────────────────────────────────────
 
 router.post('/:conversationId/invite', (req: Request, res: Response) => {
   const db = getDb()
@@ -346,14 +400,15 @@ router.post('/:conversationId/invite', (req: Request, res: Response) => {
 
   const conv = db.prepare('SELECT * FROM conversations WHERE id = ?').get(req.params['conversationId']) as Conversation | undefined
   if (!conv) { res.status(404).json({ error: 'Not found' }); return }
+
   if (conv.user_id !== req.user!.id && req.user!.role !== 'admin') {
     res.status(403).json({ error: 'Only the conversation owner can invite' }); return
   }
 
-  // Add as participant immediately — they join the socket room when they open the convo
+  // Add as participant
   db.prepare('INSERT OR IGNORE INTO conversation_participants (conversation_id, user_id) VALUES (?,?)').run(req.params['conversationId'], userId)
 
-  // Send real-time invite notification to target user
+  // Real-time invite notification (works because user joined their personal room on connect)
   emitConvInvite(userId, {
     conversationId: req.params['conversationId'],
     conversationTitle: conv.title,
@@ -363,23 +418,38 @@ router.post('/:conversationId/invite', (req: Request, res: Response) => {
   res.json({ ok: true })
 })
 
-// ── Remove a signal (adds to reject memory) ───────────────────────────────────
+// ── Remove a signal (adds to reject memory, broadcasts to all participants) ───
 
 router.delete('/:conversationId/signals/:signalId', (req: Request, res: Response) => {
   const { conversationId, signalId } = req.params
   const db = getDb()
 
+  const conv = db.prepare('SELECT * FROM conversations WHERE id = ?').get(conversationId) as Conversation | undefined
+  if (!conv) { res.status(404).json({ error: 'Not found' }); return }
+
+  const isParticipant = db.prepare('SELECT 1 FROM conversation_participants WHERE conversation_id = ? AND user_id = ?')
+    .get(conversationId, req.user!.id)
+  if (req.user!.role !== 'admin' && conv.user_id !== req.user!.id && !isParticipant) {
+    res.status(403).json({ error: 'Forbidden' }); return
+  }
+
   const row = db.prepare('SELECT signals FROM conversation_signals WHERE conversation_id = ?').get(conversationId) as any
   if (!row) { res.status(404).json({ error: 'Not found' }); return }
 
   const signals: AudienceSignal[] = JSON.parse(row.signals).filter((s: AudienceSignal) => s.id !== signalId)
+  const now = new Date().toISOString()
   db.prepare('UPDATE conversation_signals SET signals = ?, updated_at = ? WHERE conversation_id = ?')
-    .run(JSON.stringify(signals), new Date().toISOString(), conversationId)
+    .run(JSON.stringify(signals), now, conversationId)
 
-  // Remember this rejection so AI won't suggest it again
+  // Persist rejection so AI won't re-suggest
   addRejectedId(conversationId, signalId)
 
-  res.json({ signals, audience_estimate: estimateReach(signals) })
+  const estimate = estimateReach(signals)
+
+  // Broadcast update to all participants in real-time
+  emitConvSignalsUpdated(conversationId, signals, estimate)
+
+  res.json({ signals, audience_estimate: estimate })
 })
 
 export default router

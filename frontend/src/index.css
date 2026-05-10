@@ -3,5 +3,48 @@
 @tailwind utilities;
 
 body {
-  @apply bg-gray-50 text-gray-900;
+  @apply bg-[#f7f7f9] text-gray-900 antialiased;
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
 }
+
+/* ── Orb / blob animations ───────────────────────────── */
+@keyframes orb-float {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-10px); }
+}
+@keyframes orb-breathe {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%       { opacity: 0.85; transform: scale(1.06); }
+}
+.orb-float   { animation: orb-float   5s ease-in-out infinite; }
+.orb-breathe { animation: orb-breathe 4s ease-in-out infinite; }
+
+/* ── Glassmorphism card ──────────────────────────────── */
+.glass {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+}
+
+/* ── Gradient border input ───────────────────────────── */
+.gradient-border {
+  background:
+    linear-gradient(white, white) padding-box,
+    linear-gradient(135deg, rgba(167,139,250,0.55) 0%, rgba(196,181,253,0.25) 35%, rgba(209,213,219,0.4) 100%) border-box;
+  border: 1px solid transparent;
+}
+
+/* ── Gradient text ───────────────────────────────────── */
+.gradient-text {
+  background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Thin scrollbar ──────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { @apply bg-gray-200 rounded-full; }
+::-webkit-scrollbar-thumb:hover { @apply bg-gray-300; }

@@ -8,10 +8,14 @@ let io: SocketServer
 
 export function initSocket(httpServer: HttpServer): SocketServer {
   io = new SocketServer(httpServer, {
-    cors: { origin: '*', methods: ['GET', 'POST'] },
+    cors: {
+      // Restrict to the configured frontend origin in production; allow all in dev
+      origin: config.frontendUrl || '*',
+      methods: ['GET', 'POST'],
+    },
   })
 
-  // Auth middleware — verify JWT on every connection
+  // ── JWT auth middleware ───────────────────────────────────────────────────────
   io.use((socket, next) => {
     const token = socket.handshake.auth['token'] as string | undefined
     if (!token) { next(new Error('No token')); return }
@@ -27,12 +31,15 @@ export function initSocket(httpServer: HttpServer): SocketServer {
   io.on('connection', (socket: Socket) => {
     const user = (socket as any).user as User
 
-    // Join a group room to receive real-time group chat messages
+    // ── Join the user's personal room immediately so invite notifications work ──
+    socket.join(`user:${user.id}`)
+
+    // ── Group room ────────────────────────────────────────────────────────────
     socket.on('join_group', (groupId: string) => {
       socket.join(`group:${groupId}`)
     })
 
-    // Join a conversation room for collaborative AI chat
+    // ── Conversation room ─────────────────────────────────────────────────────
     socket.on('join_conversation', (conversationId: string) => {
       socket.join(`conversation:${conversationId}`)
       socket.to(`conversation:${conversationId}`).emit('conv:participant_joined', {
@@ -49,9 +56,13 @@ export function initSocket(httpServer: HttpServer): SocketServer {
       })
     })
 
-    // Typing indicator for group chat
+    // ── Group typing indicator ────────────────────────────────────────────────
     socket.on('group:typing', ({ groupId, isTyping }: { groupId: string; isTyping: boolean }) => {
-      socket.to(`group:${groupId}`).emit('group:user_typing', { user_id: user.id, name: user.name, isTyping })
+      socket.to(`group:${groupId}`).emit('group:user_typing', {
+        user_id: user.id,
+        name: user.name,
+        isTyping,
+      })
     })
 
     socket.on('disconnect', () => {})
@@ -65,7 +76,8 @@ export function getIo(): SocketServer {
   return io
 }
 
-// Helpers called by route handlers
+// ── Emit helpers called by route handlers ─────────────────────────────────────
+
 export function emitGroupMessage(groupId: string, message: any) {
   getIo().to(`group:${groupId}`).emit('group:message', message)
 }
@@ -82,10 +94,15 @@ export function emitConvAiThinking(conversationId: string, thinking: boolean) {
   getIo().to(`conversation:${conversationId}`).emit('conv:ai_thinking', { thinking })
 }
 
-export function emitConvInvite(userId: string, payload: { conversationId: string; conversationTitle: string; invitedBy: string }) {
-  getIo().to(`user:${userId}`).emit('conv:invite', payload)
+/** Broadcast updated signals + estimate to all participants in a conversation */
+export function emitConvSignalsUpdated(conversationId: string, signals: any[], estimate: any) {
+  getIo().to(`conversation:${conversationId}`).emit('conv:signals_updated', { signals, audience_estimate: estimate })
 }
 
-export function joinUserRoom(socket: Socket, userId: string) {
-  socket.join(`user:${userId}`)
+/** Notify a specific user of a conversation invite */
+export function emitConvInvite(
+  userId: string,
+  payload: { conversationId: string; conversationTitle: string; invitedBy: string },
+) {
+  getIo().to(`user:${userId}`).emit('conv:invite', payload)
 }

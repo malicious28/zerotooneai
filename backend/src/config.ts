@@ -15,5 +15,6 @@ export const config = {
   openaiApiKey: require_env('OPENAI_API_KEY'),
   databasePath: path.resolve(process.env['DATABASE_PATH'] ?? './data/audience_builder.db'),
   nodeEnv: process.env['NODE_ENV'] ?? 'development',
+  frontendUrl: process.env['FRONTEND_URL'] ?? '',
   jwtExpiresIn: '7d',
 } as const

@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express'
+import { randomBytes } from 'crypto'
 import { v4 as uuidv4 } from 'uuid'
 import { getDb } from '../db/database'
 import { requireAuth, requireAdmin } from '../middleware/auth'
@@ -8,7 +9,7 @@ import { emitGroupMessage, emitGroupAudienceExport } from '../socket'
 const router = Router()
 
 function generateInviteCode(): string {
-  return Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6)
+  return randomBytes(8).toString('base64url').slice(0, 12)
 }
 
 // ── Admin: create a group ─────────────────────────────────────────────────────
@@ -28,15 +29,14 @@ router.post('/', requireAuth, requireAdmin, (req: Request, res: Response) => {
 
 // ── Admin: list own groups ────────────────────────────────────────────────────
 
-router.get('/', requireAuth, requireAdmin, (req: Request, res: Response) => {
+router.get('/', requireAuth, (req: Request, res: Response) => {
   const db = getDb()
   const groups = db.prepare(`
     SELECT g.*, u.name as admin_name,
       (SELECT COUNT(*) FROM users WHERE group_id = g.id) as member_count
     FROM groups g JOIN users u ON g.admin_id = u.id
-    WHERE g.admin_id = ?
     ORDER BY g.created_at DESC
-  `).all(req.user!.id) as Group[]
+  `).all() as Group[]
   res.json({ groups })
 })
 
@@ -142,6 +142,19 @@ router.post('/:id/messages', requireAuth, (req: Request, res: Response) => {
   const payload = { ...msg, metadata: null }
   emitGroupMessage(req.params['id'], payload)
   res.status(201).json({ message: payload })
+})
+
+// ── Admin: delete a group ─────────────────────────────────────────────────────
+
+router.delete('/:id', requireAuth, requireAdmin, (req: Request, res: Response) => {
+  const db = getDb()
+  const group = db.prepare('SELECT * FROM groups WHERE id = ? AND admin_id = ?').get(req.params['id'], req.user!.id) as Group | undefined
+  if (!group) { res.status(404).json({ error: 'Group not found' }); return }
+
+  db.prepare('DELETE FROM group_messages WHERE group_id = ?').run(req.params['id'])
+  db.prepare('UPDATE users SET group_id = NULL WHERE group_id = ?').run(req.params['id'])
+  db.prepare('DELETE FROM groups WHERE id = ?').run(req.params['id'])
+  res.json({ ok: true })
 })
 
 // ── Export audience to group chat ─────────────────────────────────────────────

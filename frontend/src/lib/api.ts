@@ -30,6 +30,8 @@ export const api = {
     registerViaInvite: (code: string, email: string, name: string, password: string) =>
       request<{ token: string; user: any; group: any }>(`/auth/register/invite/${code}`, { method: 'POST', body: JSON.stringify({ email, name, password }) }),
     me: () => request<{ user: any; group: any | null }>('/auth/me'),
+    listUsers: () => request<{ users: any[] }>('/auth/users'),
+    makeAdmin: () => request<{ token: string; user: any }>('/auth/make-admin', { method: 'POST' }),
   },
   groups: {
     list: () => request<{ groups: any[] }>('/groups'),
@@ -40,6 +42,7 @@ export const api = {
     getMessages: (id: string, since?: string) => request<{ messages: any[] }>(`/groups/${id}/messages${since ? `?since=${since}` : ''}`),
     sendMessage: (id: string, content: string) => request<{ message: any }>(`/groups/${id}/messages`, { method: 'POST', body: JSON.stringify({ content }) }),
     exportAudience: (id: string, data: any) => request<{ message: any }>(`/groups/${id}/export-audience`, { method: 'POST', body: JSON.stringify(data) }),
+    delete: (id: string) => request<{ ok: boolean }>(`/groups/${id}`, { method: 'DELETE' }),
   },
   conversations: {
     list: () => request<{ conversations: any[] }>('/conversations'),
@@ -47,6 +50,7 @@ export const api = {
     get: (id: string) => request<{ conversation: any; messages: any[]; signals: any; participants: any[] }>(`/conversations/${id}`),
     patch: (id: string, data: any) => request<{ ok: boolean }>(`/conversations/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     confirm: (id: string) => request<{ ok: boolean }>(`/conversations/${id}/confirm`, { method: 'POST' }),
+    delete: (id: string) => request<{ ok: boolean }>(`/conversations/${id}`, { method: 'DELETE' }),
     confirmedList: () => request<{ audiences: any[] }>('/conversations/admin/confirmed'),
     getParticipants: (id: string) => request<{ participants: any[] }>(`/chat/${id}/participants`),
     invite: (conversationId: string, userId: string) => request<{ ok: boolean }>(`/chat/${conversationId}/invite`, { method: 'POST', body: JSON.stringify({ userId }) }),
