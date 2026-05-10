@@ -14,8 +14,15 @@ import groupRoutes from './routes/groups'
 const app = express()
 const httpServer = http.createServer(app)
 
+// Ensure the frontend URL has a proper scheme so browsers accept it as a CORS origin.
+// If someone sets FRONTEND_URL=example.com (no https://), prefix it automatically.
+const rawFrontendUrl = process.env['FRONTEND_URL']
+const corsOrigin = rawFrontendUrl
+  ? rawFrontendUrl.startsWith('http') ? rawFrontendUrl : `https://${rawFrontendUrl}`
+  : '*'
+
 app.use(cors({
-  origin: process.env['FRONTEND_URL'] ?? '*',
+  origin: corsOrigin,
   credentials: true,
 }))
 app.use(express.json())

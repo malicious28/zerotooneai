@@ -7,10 +7,14 @@ import { User } from './types'
 let io: SocketServer
 
 export function initSocket(httpServer: HttpServer): SocketServer {
+  const frontendUrl = config.frontendUrl
+  const socketCorsOrigin = frontendUrl
+    ? frontendUrl.startsWith('http') ? frontendUrl : `https://${frontendUrl}`
+    : '*'
+
   io = new SocketServer(httpServer, {
     cors: {
-      // Restrict to the configured frontend origin in production; allow all in dev
-      origin: config.frontendUrl || '*',
+      origin: socketCorsOrigin,
       methods: ['GET', 'POST'],
     },
   })
