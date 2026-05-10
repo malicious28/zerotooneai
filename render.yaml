@@ -5,6 +5,10 @@ services:
     rootDir: backend
     buildCommand: npm install --include=dev && npm run build
     startCommand: npm start
+    disk:
+      name: db-data
+      mountPath: /data
+      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
@@ -15,6 +19,6 @@ services:
       - key: OPENAI_API_KEY
         sync: false
       - key: DATABASE_PATH
-        value: ./data/audience_builder.db
+        value: /data/audience_builder.db
       - key: FRONTEND_URL
         sync: false

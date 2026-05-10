@@ -9,6 +9,16 @@ export function getDb(): Database.Database {
   if (!db) {
     const dir = path.dirname(config.databasePath)
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+
+    // On first run with a fresh persistent disk, seed from the committed db snapshot
+    if (!fs.existsSync(config.databasePath)) {
+      const seedPath = path.resolve(__dirname, '../../data/audience_builder.db')
+      if (fs.existsSync(seedPath) && seedPath !== config.databasePath) {
+        fs.copyFileSync(seedPath, config.databasePath)
+        console.log('[db] Seeded persistent database from committed snapshot')
+      }
+    }
+
     db = new Database(config.databasePath)
     db.pragma('journal_mode = WAL')
     db.pragma('foreign_keys = ON')
