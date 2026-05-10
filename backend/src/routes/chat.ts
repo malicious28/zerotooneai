@@ -19,13 +19,17 @@ getAllSignals()
 
 // ── System prompt ──────────────────────────────────────────────────────────────
 
-function buildSystemPrompt(relevantSignals: AudienceSignal[], rejectedIds: string[]): string {
+function buildSystemPrompt(relevantSignals: AudienceSignal[], rejectedIds: string[], isConfirmed = false): string {
   const rejectedNames = rejectedIds
     .map(id => findSignalById(id)?.name)
     .filter(Boolean)
 
   const rejectionNote = rejectedNames.length > 0
     ? `\n\n## Previously rejected signals (DO NOT suggest these again)\nThe planner removed these — do not recommend them: ${rejectedNames.join(', ')}`
+    : ''
+
+  const confirmedNote = isConfirmed
+    ? `\n\n## Audience status: LOCKED IN\nThis audience has been finalised by the planner. Do NOT call suggest_audience_signals. The targeting signals are fixed. You may answer follow-up questions about why specific signals were chosen, discuss reach and overlap, explain campaign strategy, or help interpret the audience — but do not propose any changes to the signal set.`
     : ''
 
   return `You are an expert audience planning assistant for a digital advertising platform. Your goal is to help media planners build precise, well-reasoned audience segments.
@@ -49,13 +53,13 @@ After recommending, invite refinement: "Want me to broaden with X?" or "Should w
 When the planner asks to add/remove signals or adjust, call \`suggest_audience_signals\` again with the updated FULL list.
 
 **Stage 4 — Confirm**
-When the planner is satisfied, summarize the audience and tell them to click "Confirm Audience".
+When the planner is satisfied, summarize the audience and tell them to click "Lock in Audience".
 
 ## Signal selection rules
 - Combine signals across types (location + demographic + interest) for precision
 - Warn if combined reach would drop below 5% — suggest broadening
 - Never re-suggest signals the planner already removed
-- Use transaction signals (credit card, buying behaviors) as income proxies${rejectionNote}
+- Use transaction signals (credit card, buying behaviors) as income proxies
 
 ## Few-shot examples
 
@@ -72,7 +76,7 @@ Planner: "Fitness enthusiasts aged 25-40 with premium habits"
 → Good signals: txn_health_fitness_exercise, cg_age_25_34, cg_age_35_44, credit_card_premium, loc_fitness_and_recreational_sports_centers
 
 ## Available signals (most relevant to the current conversation)
-${relevantSignals.map(s => `[${s.id}] ${s.name} (${s.type}) — ${s.description} | reach: ${s.reach_pct}%`).join('\n')}`
+${relevantSignals.map(s => `[${s.id}] ${s.name} (${s.type}) — ${s.description} | reach: ${s.reach_pct}%`).join('\n')}${rejectionNote}${confirmedNote}`
 }
 
 // ── Tool definition ────────────────────────────────────────────────────────────
@@ -207,12 +211,6 @@ router.post('/:conversationId/message', async (req: Request, res: Response) => {
     res.status(403).json({ error: 'Forbidden' }); return
   }
 
-  // Guard: don't allow chat on a confirmed conversation
-  if (conv.status === 'completed') {
-    res.status(400).json({ error: 'Audience already confirmed. Start a new conversation to build another.' })
-    return
-  }
-
   const now = new Date().toISOString()
 
   // Ensure sender is tracked as a participant
@@ -236,9 +234,10 @@ router.post('/:conversationId/message', async (req: Request, res: Response) => {
   const history = db.prepare('SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC LIMIT 40')
     .all(conversationId) as Array<{ role: string; content: string }>
 
-  // Load current signals + rejection list
-  const sigRow = db.prepare('SELECT signals FROM conversation_signals WHERE conversation_id = ?').get(conversationId) as any
+  // Load current signals + rejection list + confirmed state
+  const sigRow = db.prepare('SELECT signals, is_confirmed FROM conversation_signals WHERE conversation_id = ?').get(conversationId) as any
   let currentSignals: AudienceSignal[] = sigRow ? JSON.parse(sigRow.signals) : []
+  const isConfirmed = sigRow?.is_confirmed === 1
   const rejectedIds = getRejectedIds(conversationId)
 
   // Retrieve relevant signals — semantic (preferred) or keyword fallback
@@ -253,7 +252,7 @@ router.post('/:conversationId/message', async (req: Request, res: Response) => {
   }
 
   const oaiMessages: OAIMessage[] = [
-    { role: 'system', content: buildSystemPrompt(relevantSignals, rejectedIds) },
+    { role: 'system', content: buildSystemPrompt(relevantSignals, rejectedIds, isConfirmed) },
     ...history.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
   ]
 
@@ -284,6 +283,16 @@ router.post('/:conversationId/message', async (req: Request, res: Response) => {
             } catch {
               // Malformed tool args — skip this tool call
               oaiMessages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify({ error: 'Invalid arguments' }) })
+              continue
+            }
+
+            // If audience is confirmed, don't touch signals — just acknowledge the tool call
+            if (isConfirmed) {
+              oaiMessages.push({
+                role: 'tool',
+                tool_call_id: toolCall.id,
+                content: JSON.stringify({ ok: false, reason: 'Audience is locked in — signals cannot be modified.' }),
+              })
               continue
             }
 

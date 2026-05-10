@@ -13,7 +13,7 @@ export const config = {
   port: parseInt(process.env['PORT'] ?? '3001', 10),
   jwtSecret: require_env('JWT_SECRET'),
   openaiApiKey: require_env('OPENAI_API_KEY'),
-  databasePath: path.resolve(process.env['DATABASE_PATH'] ?? './data/audience_builder.db'),
+  databasePath: path.resolve(process.env['DATABASE_PATH'] ?? './data/sightline.db'),
   nodeEnv: process.env['NODE_ENV'] ?? 'development',
   frontendUrl: process.env['FRONTEND_URL'] ?? '',
   jwtExpiresIn: '7d',

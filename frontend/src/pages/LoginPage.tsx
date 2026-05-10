@@ -52,7 +52,7 @@ export default function LoginPage() {
               <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" fill="white"/>
             </svg>
           </div>
-          <span className="font-bold text-gray-900 text-sm tracking-tight">AudienceBuilder</span>
+          <span className="font-bold text-gray-900 text-sm tracking-tight">Sightline</span>
         </div>
 
         {/* Hero text */}
@@ -89,7 +89,7 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <p className="relative text-xs text-gray-300">© 2026 AudienceBuilder</p>
+        <p className="relative text-xs text-gray-300">© 2026 Sightline</p>
       </div>
 
       {/* Right — form panel */}
@@ -109,7 +109,7 @@ export default function LoginPage() {
                 <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" fill="white"/>
               </svg>
             </div>
-            <span className="font-bold text-gray-900 text-sm tracking-tight">AudienceBuilder</span>
+            <span className="font-bold text-gray-900 text-sm tracking-tight">Sightline</span>
           </div>
 
           {/* Heading */}

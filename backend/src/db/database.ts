@@ -12,7 +12,7 @@ export function getDb(): Database.Database {
 
     // On first run with a fresh persistent disk, seed from the committed db snapshot
     if (!fs.existsSync(config.databasePath)) {
-      const seedPath = path.resolve(__dirname, '../../data/audience_builder.db')
+      const seedPath = path.resolve(__dirname, '../../data/sightline.db')
       if (fs.existsSync(seedPath) && seedPath !== config.databasePath) {
         fs.copyFileSync(seedPath, config.databasePath)
         console.log('[db] Seeded persistent database from committed snapshot')

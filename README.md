@@ -1,4 +1,4 @@
-# Audience Builder
+# Sightline
 
 A chat-based tool for media planners to build audience segments using plain English. Describe who you want to reach, and the AI recommends targeting signals with an estimated reach.
 
@@ -61,7 +61,7 @@ Open `backend/.env` and set:
 PORT=3001
 JWT_SECRET=any-long-random-string-you-choose
 OPENAI_API_KEY=sk-proj-your-key-here
-DATABASE_PATH=./data/audience_builder.db
+DATABASE_PATH=./data/sightline.db
 NODE_ENV=development
 FRONTEND_URL=http://localhost:5173
 ```

@@ -386,7 +386,7 @@ export default function ChatPage() {
     setJoinGroupLoading(false)
   }
 
-  const isInputLocked = sending || aiThinking || isConfirmed
+  const isInputLocked = sending || aiThinking
   const convGroups    = groupConversationsByTime(conversations)
 
   const navCls = (active: boolean) =>
@@ -478,7 +478,7 @@ export default function ChatPage() {
               <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" fill="white"/>
             </svg>
           </div>
-          <span className="font-bold text-gray-900 text-sm tracking-tight">AudienceBuilder</span>
+          <span className="font-bold text-gray-900 text-sm tracking-tight">Sightline</span>
         </div>
 
         {/* Nav */}
@@ -623,7 +623,7 @@ export default function ChatPage() {
                 <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" fill="white"/>
               </svg>
             </div>
-            <span className="text-sm font-semibold text-gray-700 tracking-tight">Audience AI</span>
+            <span className="text-sm font-semibold text-gray-700 tracking-tight">Sightline AI</span>
           </div>
 
           <div className="flex items-center gap-3">
@@ -694,7 +694,7 @@ export default function ChatPage() {
                 <div className="w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}>
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" fill="white"/></svg>
                 </div>
-                <span className="text-xs font-semibold text-gray-700 flex-1 truncate">{activeConv?.title ?? 'Audience AI'}</span>
+                <span className="text-xs font-semibold text-gray-700 flex-1 truncate">{activeConv?.title ?? 'Sightline AI'}</span>
                 <button
                   onClick={() => newConversation()}
                   title="New audience"
@@ -706,7 +706,7 @@ export default function ChatPage() {
               <div className="flex-1 overflow-y-auto px-3 py-3">
                 {!activeConvId ? (
                   <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-2">
-                    <p className="text-xs font-medium text-gray-600">Audience AI</p>
+                    <p className="text-xs font-medium text-gray-600">Sightline AI</p>
                     <p className="text-xs text-gray-400 leading-relaxed">Describe your target audience and get AI-powered signals — then share the result directly to this group.</p>
                     <button
                       onClick={() => newConversation()}
@@ -754,46 +754,44 @@ export default function ChatPage() {
               </div>
 
               {/* Compact AI input */}
-              {!isConfirmed && (
-                <div className="border-t border-gray-100 p-3 flex-shrink-0">
-                  <form onSubmit={handleFormSubmit}>
-                    <div
-                      className="flex items-center gap-2 rounded-xl px-3 py-2.5"
-                      style={{
-                        background: 'linear-gradient(#fff, #fff) padding-box, linear-gradient(135deg, rgba(253,224,71,0.5), rgba(229,231,235,0.5)) border-box',
-                        border: '1px solid transparent',
-                      }}
-                    >
-                      <input
-                        value={input}
-                        onChange={e => setInput(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleFormSubmit(e as any) } }}
-                        placeholder={aiThinking ? 'AI is working...' : activeConvId ? 'Refine your audience...' : 'Start a new audience...'}
-                        className="flex-1 bg-transparent text-xs text-gray-700 placeholder-gray-400 focus:outline-none min-w-0"
-                        disabled={!!activeConvId && isInputLocked}
-                      />
-                      <button
-                        type="submit"
-                        disabled={(!!activeConvId && isInputLocked) || !input.trim()}
-                        className="w-7 h-7 flex items-center justify-center rounded-lg text-white flex-shrink-0 disabled:opacity-40 transition-all"
-                        style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}
-                      ><IcSend /></button>
-                    </div>
-                  </form>
-                  {activeConvId && (
+              <div className="border-t border-gray-100 p-3 flex-shrink-0">
+                <form onSubmit={handleFormSubmit}>
+                  <div
+                    className="flex items-center gap-2 rounded-xl px-3 py-2.5"
+                    style={{
+                      background: 'linear-gradient(#fff, #fff) padding-box, linear-gradient(135deg, rgba(253,224,71,0.5), rgba(229,231,235,0.5)) border-box',
+                      border: '1px solid transparent',
+                    }}
+                  >
+                    <input
+                      value={input}
+                      onChange={e => setInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleFormSubmit(e as any) } }}
+                      placeholder={aiThinking ? 'AI is working...' : activeConvId && isConfirmed ? 'Ask a follow-up...' : activeConvId ? 'Refine your audience...' : 'Start a new audience...'}
+                      className="flex-1 bg-transparent text-xs text-gray-700 placeholder-gray-400 focus:outline-none min-w-0"
+                      disabled={!!activeConvId && isInputLocked}
+                    />
                     <button
-                      type="button"
-                      onClick={openInviteModal}
-                      className="mt-2 w-full text-[11px] text-gray-400 hover:text-amber-600 flex items-center justify-center gap-1.5 transition-colors"
-                    >
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/>
-                      </svg>
-                      Invite to this AI conversation
-                    </button>
-                  )}
-                </div>
-              )}
+                      type="submit"
+                      disabled={(!!activeConvId && isInputLocked) || !input.trim()}
+                      className="w-7 h-7 flex items-center justify-center rounded-lg text-white flex-shrink-0 disabled:opacity-40 transition-all"
+                      style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}
+                    ><IcSend /></button>
+                  </div>
+                </form>
+                {activeConvId && !isConfirmed && (
+                  <button
+                    type="button"
+                    onClick={openInviteModal}
+                    className="mt-2 w-full text-[11px] text-gray-400 hover:text-amber-600 flex items-center justify-center gap-1.5 transition-colors"
+                  >
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/>
+                    </svg>
+                    Invite to this AI conversation
+                  </button>
+                )}
+              </div>
             </aside>
           </>
         ) : (
@@ -929,8 +927,7 @@ export default function ChatPage() {
             </div>
 
             {/* ── Persistent input — always at bottom ─────────────────────── */}
-            {!isConfirmed && (
-              <div className="relative z-10 px-4 py-4 flex-shrink-0">
+            <div className="relative z-10 px-4 py-4 flex-shrink-0">
                 <form onSubmit={handleFormSubmit} className="max-w-2xl mx-auto">
                   <div
                     className="rounded-2xl"
@@ -953,8 +950,10 @@ export default function ChatPage() {
                         placeholder={
                           activeConvId && aiThinking
                             ? 'AI is thinking...'
+                            : activeConvId && isConfirmed
+                            ? 'Audience locked in — ask follow-up questions...'
                             : activeConvId
-                            ? 'Describe your audience...'
+                            ? 'Refine your audience...'
                             : '✦  Describe your target audience in plain English...'
                         }
                         rows={activeConvId ? 2 : 3}
@@ -997,7 +996,6 @@ export default function ChatPage() {
                   </div>
                 </form>
               </div>
-            )}
           </main>
 
           {/* ══ Right panel — Audience signals ═════════════════════════════ */}
