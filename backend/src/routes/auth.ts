@@ -20,7 +20,7 @@ function rowToUser(row: DbUser): User {
 // ── Standard register ─────────────────────────────────────────────────────────
 
 router.post('/register', (req: Request, res: Response) => {
-  const { email, name, password, role = 'planner' } = req.body
+  const { email, name, password } = req.body
   if (!email || !name || !password) { res.status(400).json({ error: 'email, name and password required' }); return }
 
   const db = getDb()
@@ -30,7 +30,7 @@ router.post('/register', (req: Request, res: Response) => {
 
   const id = uuidv4()
   const password_hash = bcrypt.hashSync(password, 10)
-  db.prepare('INSERT INTO users (id, email, name, role, password_hash) VALUES (?,?,?,?,?)').run(id, email, name, role, password_hash)
+  db.prepare('INSERT INTO users (id, email, name, role, password_hash) VALUES (?,?,?,?,?)').run(id, email, name, 'planner', password_hash)
   const row = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as DbUser
   const user = rowToUser(row)
   res.status(201).json({ token: makeToken(user), user })
@@ -70,16 +70,6 @@ router.post('/login', (req: Request, res: Response) => {
     res.status(401).json({ error: 'Invalid credentials' }); return
   }
 
-  const user = rowToUser(row)
-  res.json({ token: makeToken(user), user })
-})
-
-// ── Promote self to admin (dev convenience) ───────────────────────────────────
-
-router.post('/make-admin', requireAuth, (req: Request, res: Response) => {
-  const db = getDb()
-  db.prepare('UPDATE users SET role = ? WHERE id = ?').run('admin', req.user!.id)
-  const row = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user!.id) as DbUser
   const user = rowToUser(row)
   res.json({ token: makeToken(user), user })
 })

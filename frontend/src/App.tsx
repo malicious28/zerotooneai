@@ -24,7 +24,7 @@ export default function App() {
           <Route path="/join/:code" element={<JoinPage />} />
           <Route path="/chat" element={<PrivateRoute><ChatPage /></PrivateRoute>} />
           <Route path="/chat/:id" element={<PrivateRoute><ChatPage /></PrivateRoute>} />
-          <Route path="/admin" element={<PrivateRoute><AdminPage /></PrivateRoute>} />
+          <Route path="/admin" element={<PrivateRoute adminOnly><AdminPage /></PrivateRoute>} />
           <Route path="*" element={<Navigate to="/chat" replace />} />
         </Routes>
       </BrowserRouter>

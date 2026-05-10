@@ -25,13 +25,12 @@ export const api = {
   auth: {
     login: (email: string, password: string) =>
       request<{ token: string; user: any }>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
-    register: (email: string, name: string, password: string, role?: string) =>
-      request<{ token: string; user: any }>('/auth/register', { method: 'POST', body: JSON.stringify({ email, name, password, role }) }),
+    register: (email: string, name: string, password: string) =>
+      request<{ token: string; user: any }>('/auth/register', { method: 'POST', body: JSON.stringify({ email, name, password }) }),
     registerViaInvite: (code: string, email: string, name: string, password: string) =>
       request<{ token: string; user: any; group: any }>(`/auth/register/invite/${code}`, { method: 'POST', body: JSON.stringify({ email, name, password }) }),
     me: () => request<{ user: any; group: any | null }>('/auth/me'),
     listUsers: () => request<{ users: any[] }>('/auth/users'),
-    makeAdmin: () => request<{ token: string; user: any }>('/auth/make-admin', { method: 'POST' }),
   },
   groups: {
     list: () => request<{ groups: any[] }>('/groups'),

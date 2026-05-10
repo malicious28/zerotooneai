@@ -116,28 +116,6 @@ export default function AdminPage() {
         </div>
       </header>
 
-      {/* Role notice — shown when user is not admin */}
-      {user?.role !== 'admin' && (
-        <div className="flex items-center justify-between px-8 py-3 bg-amber-50 border-b border-amber-200">
-          <p className="text-sm text-amber-800">
-            You're logged in as <strong>{user?.role}</strong>. Some features require admin access.
-          </p>
-          <button
-            onClick={async () => {
-              try {
-                const r = await api.auth.makeAdmin()
-                localStorage.setItem('token', r.token)
-                window.location.reload()
-              } catch (e: any) { alert(e.message) }
-            }}
-            className="text-sm font-medium text-white px-4 py-1.5 rounded-lg flex-shrink-0 ml-4"
-            style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}
-          >
-            Make me Admin
-          </button>
-        </div>
-      )}
-
       <div className="flex flex-1 overflow-hidden">
 
         {/* Main content */}

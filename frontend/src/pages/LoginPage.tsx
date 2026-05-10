@@ -9,7 +9,6 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
   const [password, setPassword] = useState('')
-  const [role, setRole] = useState<'planner' | 'admin'>('planner')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -21,7 +20,7 @@ export default function LoginPage() {
       if (mode === 'login') {
         await login(email, password)
       } else {
-        await register(email, name, password, role)
+        await register(email, name, password)
       }
       navigate('/chat')
     } catch (err: any) {
@@ -207,28 +206,6 @@ export default function LoginPage() {
                 />
               </div>
             </div>
-
-            {mode === 'register' && (
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">Role</label>
-                <div
-                  style={{
-                    background: 'linear-gradient(#ffffff, #ffffff) padding-box, linear-gradient(135deg, rgba(253,224,71,0.5), rgba(229,231,235,0.5)) border-box',
-                    border: '1px solid transparent',
-                    borderRadius: '0.75rem',
-                  }}
-                >
-                  <select
-                    value={role}
-                    onChange={e => setRole(e.target.value as any)}
-                    className="w-full bg-transparent px-3.5 py-2.5 text-sm text-gray-900 focus:outline-none rounded-xl appearance-none"
-                  >
-                    <option value="planner">Planner</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                </div>
-              </div>
-            )}
 
             {error && (
               <p className="text-red-500 text-xs bg-red-50 border border-red-100 rounded-xl px-3.5 py-2.5">{error}</p>
