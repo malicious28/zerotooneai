@@ -25,8 +25,8 @@ export const api = {
   auth: {
     login: (email: string, password: string) =>
       request<{ token: string; user: any }>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
-    register: (email: string, name: string, password: string) =>
-      request<{ token: string; user: any }>('/auth/register', { method: 'POST', body: JSON.stringify({ email, name, password }) }),
+    register: (email: string, name: string, password: string, role?: string) =>
+      request<{ token: string; user: any }>('/auth/register', { method: 'POST', body: JSON.stringify({ email, name, password, role }) }),
     registerViaInvite: (code: string, email: string, name: string, password: string) =>
       request<{ token: string; user: any; group: any }>(`/auth/register/invite/${code}`, { method: 'POST', body: JSON.stringify({ email, name, password }) }),
     me: () => request<{ user: any; group: any | null }>('/auth/me'),

@@ -6,7 +6,7 @@ interface AuthContextType {
   user: any | null
   loading: boolean
   login: (email: string, password: string) => Promise<void>
-  register: (email: string, name: string, password: string) => Promise<void>
+  register: (email: string, name: string, password: string, role?: string) => Promise<void>
   logout: () => void
 }
 
@@ -34,8 +34,8 @@ export function useAuthState(): AuthContextType {
     setUser(res.user)
   }
 
-  const register = async (email: string, name: string, password: string) => {
-    const res = await api.auth.register(email, name, password)
+  const register = async (email: string, name: string, password: string, role?: string) => {
+    const res = await api.auth.register(email, name, password, role)
     localStorage.setItem('token', res.token)
     setUser(res.user)
   }

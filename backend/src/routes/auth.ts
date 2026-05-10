@@ -20,8 +20,10 @@ function rowToUser(row: DbUser): User {
 // ── Standard register ─────────────────────────────────────────────────────────
 
 router.post('/register', (req: Request, res: Response) => {
-  const { email, name, password } = req.body
+  const { email, name, password, role } = req.body
   if (!email || !name || !password) { res.status(400).json({ error: 'email, name and password required' }); return }
+
+  const assignedRole = role === 'admin' ? 'admin' : 'planner'
 
   const db = getDb()
   if (db.prepare('SELECT id FROM users WHERE email = ?').get(email)) {
@@ -30,7 +32,7 @@ router.post('/register', (req: Request, res: Response) => {
 
   const id = uuidv4()
   const password_hash = bcrypt.hashSync(password, 10)
-  db.prepare('INSERT INTO users (id, email, name, role, password_hash) VALUES (?,?,?,?,?)').run(id, email, name, 'planner', password_hash)
+  db.prepare('INSERT INTO users (id, email, name, role, password_hash) VALUES (?,?,?,?,?)').run(id, email, name, assignedRole, password_hash)
   const row = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as DbUser
   const user = rowToUser(row)
   res.status(201).json({ token: makeToken(user), user })
