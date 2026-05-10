@@ -21,6 +21,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true)
   const [newGroupName, setNewGroupName] = useState('')
   const [creatingGroup, setCreatingGroup] = useState(false)
+  const [createGroupError, setCreateGroupError] = useState('')
   const [activeGroupChat, setActiveGroupChat] = useState<any>(null)
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -36,11 +37,14 @@ export default function AdminPage() {
   const createGroup = async () => {
     if (!newGroupName.trim()) return
     setCreatingGroup(true)
+    setCreateGroupError('')
     try {
       const r = await api.groups.create(newGroupName.trim())
       setGroups(prev => [{ ...r.group, member_count: 0 }, ...prev])
       setNewGroupName('')
-    } catch (err: any) { alert(err.message) }
+    } catch (err: any) {
+      setCreateGroupError(err.message || 'Failed to create group. Please try again.')
+    }
     setCreatingGroup(false)
   }
 
@@ -54,7 +58,7 @@ export default function AdminPage() {
     try {
       const r = await api.groups.regenerateInvite(groupId)
       setGroups(prev => prev.map(g => g.id === groupId ? { ...g, invite_code: r.invite_code } : g))
-    } catch (err: any) { alert(err.message) }
+    } catch (err: any) { setCreateGroupError(err.message || 'Failed to regenerate invite link.') }
   }
 
   const deleteGroup = async (groupId: string) => {
@@ -64,7 +68,7 @@ export default function AdminPage() {
       await api.groups.delete(groupId)
       setGroups(prev => prev.filter(g => g.id !== groupId))
       if (activeGroupChat?.id === groupId) setActiveGroupChat(null)
-    } catch (err: any) { alert(err.message) }
+    } catch (err: any) { setCreateGroupError(err.message || 'Failed to delete group.') }
     setDeletingId(null)
   }
 
@@ -199,6 +203,9 @@ export default function AdminPage() {
                       {creatingGroup ? 'Creating...' : 'Create'}
                     </button>
                   </div>
+                  {createGroupError && (
+                    <p className="mt-2.5 text-xs text-red-500 bg-red-50 border border-red-100 rounded-xl px-3.5 py-2.5">{createGroupError}</p>
+                  )}
                 </div>
 
                 {/* Group list */}
